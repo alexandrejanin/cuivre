@@ -1,32 +1,52 @@
 use maths::Vector2i;
 use sdl2;
-pub use sdl2::keyboard::Keycode;
-use std::collections::HashMap;
+pub use sdl2::{keyboard::Keycode, mouse::MouseButton};
+use std::{collections::HashMap, error, fmt};
 
-///Represents the current state of a keyboard key.
-struct KeyState {
+///Errors related to input management.
+#[derive(Debug)]
+pub enum InputError {
+    KeycodeNotFound(Keycode),
+    MouseButtonNotFound(MouseButton),
+}
+
+impl fmt::Display for InputError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            InputError::KeycodeNotFound(keycode) => write!(f, "Keycode not found: {}", keycode),
+            InputError::MouseButtonNotFound(button) => {
+                write!(f, "MouseButton not found: {:?}", button)
+            }
+        }
+    }
+}
+
+impl error::Error for InputError {}
+
+///Represents the current state of a keyboard key or mouse button.
+pub struct KeyState {
     down: bool,
     changed: bool,
 }
 
 impl KeyState {
     ///Is the key currently held down?
-    fn down(&self) -> bool {
+    pub fn down(&self) -> bool {
         self.down
     }
 
     ///Is the key currently up?
-    fn up(&self) -> bool {
+    pub fn up(&self) -> bool {
         !self.down
     }
 
     ///Did the key go from up to down this frame?
-    fn pressed(&self) -> bool {
+    pub fn pressed(&self) -> bool {
         self.down && self.changed
     }
 
     ///Did the key go from down to up this frame?
-    fn released(&self) -> bool {
+    pub fn released(&self) -> bool {
         !self.down && self.changed
     }
 
@@ -42,6 +62,7 @@ pub struct InputManager {
     //Keyboard state
     key_state: HashMap<Keycode, KeyState>,
     //Mouse state
+    mouse_state: HashMap<MouseButton, KeyState>,
     mouse_position: Vector2i,
 }
 
@@ -56,6 +77,7 @@ impl InputManager {
     pub fn new() -> InputManager {
         InputManager {
             key_state: HashMap::new(),
+            mouse_state: HashMap::new(),
             mouse_position: Vector2i::new(0, 0),
         }
     }
@@ -63,59 +85,52 @@ impl InputManager {
     ///Update InputManager with new events from the event pump.
     pub fn update(&mut self, events: &sdl2::EventPump) {
         //Update keyboard state
-        let new_key_state: Vec<(Keycode, bool)> = events
-            .keyboard_state()
-            .scancodes()
-            //Convert from scancode to keycode
-            .filter_map(|(scancode, pressed)|
-                if let Some(keycode) = Keycode::from_scancode(scancode) {
-                    Some((keycode, pressed))
-                } else {
-                    None
-                }
-            )
-            .collect();
-
-        for (keycode, pressed) in &new_key_state {
-            if !self.key_state.contains_key(keycode) {
-                self.key_state.insert(
-                    *keycode,
-                    KeyState {
-                        down: *pressed,
-                        changed: false,
-                    },
-                );
+        let new_key_state = events.keyboard_state();
+        let key_states = new_key_state.scancodes().filter_map(|(scancode, pressed)| {
+            if let Some(keycode) = Keycode::from_scancode(scancode) {
+                Some((keycode, pressed))
+            } else {
+                None
             }
+        });
 
+        for (keycode, pressed) in key_states {
             self.key_state
-                .get_mut(keycode)
-                .unwrap_or_else(|| panic!("Keycode not found: {:?}", keycode))
-                .update(*pressed);
+                .entry(keycode)
+                .or_insert(KeyState {
+                    down: pressed,
+                    changed: false,
+                })
+                .update(pressed);
         }
 
         //Update mouse
         let mouse_state = events.mouse_state();
         self.mouse_position = Vector2i::new(mouse_state.x(), mouse_state.y());
+
+        for (button, pressed) in mouse_state.mouse_buttons() {
+            self.mouse_state
+                .entry(button)
+                .or_insert(KeyState {
+                    down: pressed,
+                    changed: false,
+                })
+                .update(pressed);
+        }
     }
 
-    ///Is the key currently held down?
-    pub fn key_down(&self, keycode: Keycode) -> bool {
-        self.key_state[&keycode].down()
+    ///Get the current state of a keyboard key.
+    pub fn key(&self, keycode: Keycode) -> Result<&KeyState, InputError> {
+        self.key_state
+            .get(&keycode)
+            .ok_or_else(|| InputError::KeycodeNotFound(keycode))
     }
 
-    ///Is the key currently up?
-    pub fn key_up(&self, keycode: Keycode) -> bool {
-        self.key_state[&keycode].up()
-    }
-
-    ///Did the key go from up to down this frame?
-    pub fn key_pressed(&self, keycode: Keycode) -> bool {
-        self.key_state[&keycode].pressed()
-    }
-
-    ///Did the key go from down to up this frame?
-    pub fn key_released(&self, keycode: Keycode) -> bool {
-        self.key_state[&keycode].released()
+    ///Get the current state of a mouse button.
+    pub fn button(&self, button: MouseButton) -> Result<&KeyState, InputError> {
+        self.mouse_state
+            .get(&button)
+            .ok_or_else(|| InputError::MouseButtonNotFound(button))
     }
 
     ///Mouse position in pixels, relative to the top left corner.

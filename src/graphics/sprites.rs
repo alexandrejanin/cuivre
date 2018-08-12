@@ -22,6 +22,13 @@ impl SpriteSheet {
         }
     }
 
+    pub fn sprite(&self, x: i32, y: i32) -> Sprite {
+        Sprite {
+            sheet: *self,
+            position: Vector2i::new(x, y),
+        }
+    }
+
     pub fn sprite_size(&self) -> Vector2u {
         self.sprite_size
     }
@@ -52,11 +59,6 @@ pub struct Sprite {
 }
 
 impl Sprite {
-    ///Create a new sprite from a sprite sheet and a position
-    pub fn new(sheet: SpriteSheet, position: Vector2i) -> Sprite {
-        Sprite { sheet, position }
-    }
-
     pub fn texture(&self) -> Texture {
         self.sheet.texture
     }

@@ -1,13 +1,20 @@
+pub use self::{
+    camera::Camera,
+    manager::GraphicsManager,
+    mesh::{Mesh, MeshBuilder},
+    shaders::{Program, Shader},
+    sprites::{Sprite, SpriteSheet},
+};
 use gl;
 use maths::Vector2u;
 use std::cmp::Ordering;
 
 mod batches;
-pub mod camera;
-pub mod manager;
-pub mod mesh;
-pub mod shaders;
-pub mod sprites;
+mod camera;
+mod manager;
+mod mesh;
+mod shaders;
+mod sprites;
 
 ///ID of loaded OpenGL Texture
 pub type TextureID = gl::types::GLuint;
@@ -35,7 +42,7 @@ impl Ord for Texture {
 }
 
 impl Texture {
-    pub fn id(&self) -> gl::types::GLuint {
+    pub fn id(&self) -> TextureID {
         self.id
     }
 

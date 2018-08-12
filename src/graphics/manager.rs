@@ -1,13 +1,3 @@
-use gl;
-use maths::{Vector2f, Vector2u, Vector3f};
-use resources::{self, ResourceLoader};
-use sdl2;
-use std::{
-    self,
-    collections::HashMap,
-    fmt::{self, Display, Formatter},
-    path::{Path, PathBuf},
-};
 use super::{
     batches::{Batch, BatchList, DrawCall},
     camera::Camera,
@@ -15,6 +5,16 @@ use super::{
     shaders::{self, Program},
     sprites::Sprite,
     Texture,
+};
+use gl;
+use maths::{Vector2f, Vector2u, Vector3f};
+use resources::{self, ResourceLoader};
+use sdl2;
+use std::{
+    self,
+    collections::HashMap,
+    fmt,
+    path::{Path, PathBuf},
 };
 use transform::Transform;
 
@@ -55,8 +55,8 @@ impl From<sdl2::video::WindowBuildError> for DrawingError {
     }
 }
 
-impl Display for DrawingError {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+impl fmt::Display for DrawingError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             DrawingError::SdlError(string) => write!(f, "{}", string),
             DrawingError::GlError(string) => write!(f, "{}", string),
@@ -190,7 +190,7 @@ impl<'a> GraphicsManager<'a> {
             program,
             quad,
             textures: HashMap::new(),
-            batches: BatchList::with_capacity(10),
+            batches: BatchList::new(),
         })
     }
 

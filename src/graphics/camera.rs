@@ -4,6 +4,7 @@ use maths::{Matrix4f, Point3f, Vector2f, Vector2u, Vector3f};
 //Orthographic camera
 
 /// Represents a 3D projection and view.
+///
 /// Required for drawing sprites/meshes.
 pub struct Camera {
     ///Position of the camera in world space.
@@ -24,10 +25,14 @@ pub struct Camera {
 
 impl Camera {
     /// Horizontal FOV if perspective camera, frustum width otherwise.
-    pub fn width(&self) -> f32 { self.size.x }
+    pub fn width(&self) -> f32 {
+        self.size.x
+    }
 
     /// Vertical FOV if perspective camera, frustum height otherwise.
-    pub fn height(&self) -> f32 { self.size.y }
+    pub fn height(&self) -> f32 {
+        self.size.y
+    }
 
     /// Set camera width while keeping aspect ratio.
     pub fn set_width(&mut self, width: f32) {
@@ -42,7 +47,9 @@ impl Camera {
     }
 
     /// Creates a camera with given width.
+    ///
     /// Height is calculated from window size.
+    ///
     /// Width and height represent FOV if camera has perspective, frustum size otherwise.
     pub fn from_width(
         position: Point3f,
@@ -67,7 +74,9 @@ impl Camera {
     }
 
     /// Creates a camera with given height.
+    ///
     /// Width is calculated from window size.
+    ///
     /// Width and height represent FOV if camera has perspective, frustum size otherwise.
     pub fn from_height(
         position: Point3f,

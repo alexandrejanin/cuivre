@@ -70,6 +70,13 @@ impl Batch {
 
     ///Adds an object to the batch. Returns false if the batch is full.
     pub fn add(&mut self, drawcall: &DrawCall) -> bool {
+        if drawcall.program != self.program
+            || drawcall.mesh != self.mesh
+            || drawcall.texture != self.texture
+        {
+            return false;
+        }
+
         //Check if batch is full
         if self.obj_count >= MAX_BATCH_SIZE {
             return false;
@@ -111,29 +118,18 @@ pub struct BatchList {
 }
 
 impl BatchList {
-    ///Initializes and empty BatchList.
+    ///Initializes an empty BatchList.
     pub fn new() -> Self {
         Self {
             batches: Vec::new(),
         }
     }
 
-    ///Initializes and empty BatchList with specified capacity before needing to be resized.
-    pub fn with_capacity(capacity: usize) -> Self {
-        Self {
-            batches: Vec::with_capacity(capacity),
-        }
-    }
-
+    ///Adds a drawcall to the batch list, finding or creating a compatible batch.
     pub fn insert(&mut self, drawcall: &DrawCall) {
         for batch in &mut self.batches {
-            //Check that batch and drawcall match
-            if batch.program == drawcall.program
-                && batch.mesh == drawcall.mesh
-                && batch.texture == drawcall.texture
-                && batch.add(drawcall)
-            {
-                //Attempts to add drawcall to batch; will return false if the batch is full
+            //Attempts to add drawcall to batch
+            if batch.add(drawcall) {
                 return;
             }
         }
@@ -144,10 +140,6 @@ impl BatchList {
 
     pub fn clear(&mut self) {
         self.batches.clear()
-    }
-
-    pub fn len(&self) -> usize {
-        self.batches.len()
     }
 
     pub fn iter(&self) -> Iter<Batch> {
