@@ -1,4 +1,7 @@
 # cuivre
+
+[crates.io](https://crates.io/crates/cuivre)
+
 A WIP game engine for Rust.
 
 Goals:
