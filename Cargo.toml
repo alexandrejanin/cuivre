@@ -1,0 +1,13 @@
+[package]
+name = "cuivre"
+version = "0.1.0"
+authors = ["Alexandre Janin <alexandrejanin92@gmail.com>"]
+
+[dependencies]
+sdl2 = "*"
+gl = "*"
+cgmath = "*"
+
+image = "*"
+ron = "*"
+serde = "*"
