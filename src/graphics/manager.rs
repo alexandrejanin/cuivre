@@ -313,7 +313,7 @@ impl<'a> GraphicsManager<'a> {
             texture: sprite.texture(),
             batch_vbo: self.quad.batch_vbo(),
             tex_position: sprite.gl_position(),
-            matrix: camera.matrix() * transform.matrix(),
+            matrix: camera.matrix(self.window.size().into()) * transform.matrix(),
         })
     }
 

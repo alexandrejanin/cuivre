@@ -1,5 +1,5 @@
 pub use self::{
-    camera::Camera,
+    camera::{Camera, CameraScaleMode},
     manager::GraphicsManager,
     mesh::{Mesh, MeshBuilder},
     shaders::{Program, Shader},

@@ -1,113 +1,64 @@
 use cgmath::{self, Ortho, PerspectiveFov};
 use maths::{Matrix4f, Point3f, Vector2f, Vector2u, Vector3f};
 
-//Orthographic camera
+/// Different ways to calculate camera width and height from `size`.
+pub enum CameraScaleMode {
+    /// `size` will always be width/horizontal FOV.
+    Width,
+    /// `size` will always be height/vertical FOV.
+    Height,
+    /// `size` will be width if width < height, and vice versa.
+    Min,
+    /// `size` will be width if width > height, and vice versa.
+    Max,
+}
 
 /// Represents a 3D projection and view.
 ///
 /// Required for drawing sprites/meshes.
 pub struct Camera {
-    ///Position of the camera in world space.
+    /// Position of the camera in world space.
     pub position: Point3f,
-    ///Direction the camera is looking towards.
+    /// Direction the camera is looking towards.
     pub direction: Vector3f,
-    ///Near plane distance.
+    /// Near plane distance.
     pub near: f32,
-    ///Far plane distance.
+    /// Far plane distance.
     pub far: f32,
 
-    ///Size if orthographic, FOV if perspective.
-    size: Vector2f,
+    /// Size represents the frustum size if the camera is orthographic,
+    ///
+    /// and FOV if the camera is perspective.
+    pub size: f32,
+    /// Determines how the width and height of the camera will be calculated from `size` and window size.
+    pub scale_mode: CameraScaleMode,
 
-    ///Whether the camera is perspective or orthographic.
+    /// Whether the camera is perspective or orthographic.
     pub perspective: bool,
 }
 
 impl Camera {
-    /// Horizontal FOV if perspective camera, frustum width otherwise.
-    pub fn width(&self) -> f32 {
-        self.size.x
-    }
-
-    /// Vertical FOV if perspective camera, frustum height otherwise.
-    pub fn height(&self) -> f32 {
-        self.size.y
-    }
-
-    /// Set camera width while keeping aspect ratio.
-    pub fn set_width(&mut self, width: f32) {
-        self.size.y = width * self.size.y / self.size.x;
-        self.size.x = width;
-    }
-
-    /// Set camera height while keeping aspect ratio.
-    pub fn set_height(&mut self, height: f32) {
-        self.size.x = height * self.size.x / self.size.y;
-        self.size.y = height;
-    }
-
-    /// Creates a camera with given width.
+    /// Creates a new camera.
     ///
-    /// Height is calculated from window size.
-    ///
-    /// Width and height represent FOV if camera has perspective, frustum size otherwise.
-    pub fn from_width(
+    /// Same as struct initialization.
+    pub fn new(
         position: Point3f,
         direction: Vector3f,
-        perspective: bool,
         near: f32,
         far: f32,
-        width: f32,
-        window_size: Vector2u,
+        size: f32,
+        scale_mode: CameraScaleMode,
+        perspective: bool,
     ) -> Self {
-        let ratio = window_size.y as f32 / window_size.x as f32;
-        let height = ratio * width;
-
         Self {
             position,
             direction,
             near,
             far,
-            size: Vector2f::new(width, height),
+            size,
+            scale_mode,
             perspective,
         }
-    }
-
-    /// Creates a camera with given height.
-    ///
-    /// Width is calculated from window size.
-    ///
-    /// Width and height represent FOV if camera has perspective, frustum size otherwise.
-    pub fn from_height(
-        position: Point3f,
-        direction: Vector3f,
-        near: f32,
-        far: f32,
-        perspective: bool,
-        height: f32,
-        window_size: Vector2u,
-    ) -> Self {
-        let ratio = window_size.x as f32 / window_size.y as f32;
-        let width = ratio * height;
-
-        Self {
-            position,
-            direction,
-            near,
-            far,
-            size: Vector2f::new(width, height),
-            perspective,
-        }
-    }
-
-    /// Resize the camera according to window size, conserving width and calculating a new height.
-    pub fn resize_keep_width(&mut self, window_width: i32, window_height: i32) {
-        self.size.y = self.size.x * window_height as f32 / window_width as f32;
-    }
-
-    /// Resize the camera according to window size, conserving height and calculating a new width.
-    pub fn resize_keep_height(&mut self, window_width: i32, window_height: i32) {
-        self.size.x = self.size.y * window_width as f32 / window_height as f32;
     }
 
     /// Make camera look at a point from its current position.
@@ -116,25 +67,44 @@ impl Camera {
     }
 
     /// Combined projection and view matrices.
-    pub fn matrix(&self) -> Matrix4f {
-        self.proj_matrix() * self.view_matrix()
+    pub fn matrix(&self, window_size: Vector2u) -> Matrix4f {
+        self.proj_matrix(window_size) * self.view_matrix()
     }
 
     /// Projection matrix.
-    pub fn proj_matrix(&self) -> Matrix4f {
+    pub fn proj_matrix(&self, window_size: Vector2u) -> Matrix4f {
+        let ratio = window_size.x as f32 / window_size.y as f32;
+
+        let size: Vector2f = match self.scale_mode {
+            CameraScaleMode::Width => Vector2f::new(self.size, self.size / ratio),
+            CameraScaleMode::Height => Vector2f::new(self.size * ratio, self.size),
+
+            CameraScaleMode::Min => if ratio < 1.0 {
+                Vector2f::new(self.size, self.size / ratio)
+            } else {
+                Vector2f::new(self.size * ratio, self.size)
+            },
+
+            CameraScaleMode::Max => if ratio > 1.0 {
+                Vector2f::new(self.size, self.size / ratio)
+            } else {
+                Vector2f::new(self.size * ratio, self.size)
+            },
+        };
+
         if self.perspective {
             PerspectiveFov {
-                fovy: cgmath::Deg(self.size.y).into(),
+                fovy: cgmath::Deg(size.y).into(),
                 near: self.near,
                 far: self.far,
-                aspect: self.size.x / self.size.y,
+                aspect: size.x / size.y,
             }.into()
         } else {
             Ortho {
-                left: -self.size.x / 2.0,
-                right: self.size.x / 2.0,
-                bottom: -self.size.y / 2.0,
-                top: self.size.y / 2.0,
+                left: -size.x / 2.0,
+                right: size.x / 2.0,
+                bottom: -size.y / 2.0,
+                top: size.y / 2.0,
                 near: self.near,
                 far: self.far,
             }.into()
