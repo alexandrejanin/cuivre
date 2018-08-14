@@ -1,7 +1,7 @@
-use super::manager::DrawingError;
 use gl;
 use maths::{Vector2f, Vector3f};
-use std::{self, mem};
+use std::{self, mem, ptr};
+use super::manager::DrawingError;
 
 //Max amount of instances in a batch
 pub const MAX_BATCH_SIZE: usize = 1000;
@@ -208,7 +208,7 @@ impl MeshBuilder {
             gl::BufferData(
                 gl::ARRAY_BUFFER,
                 (floats * mem::size_of::<f32>()) as gl::types::GLsizeiptr,
-                0 as *const gl::types::GLvoid,
+                ptr::null(),
                 gl::STREAM_DRAW,
             );
 

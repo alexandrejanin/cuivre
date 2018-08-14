@@ -2,16 +2,16 @@ use super::Texture;
 use maths::{Vector2f, Vector2i, Vector2u, Vector4f};
 
 ///Represents an OpenGL texture sliced into sprites.
-#[derive(Copy, Clone, Debug)]
-pub struct SpriteSheet {
-    texture: Texture,
+#[derive(Debug)]
+pub struct SpriteSheet<'t> {
+    texture: &'t Texture,
     sprite_size: Vector2u,
     gl_size: Vector2f,
 }
 
-impl SpriteSheet {
+impl<'t> SpriteSheet<'t> {
     ///Create a new sprite sheet from a mesh (quad), texture and sprite size (in pixels)
-    pub fn new(texture: Texture, sprite_size: Vector2u) -> SpriteSheet {
+    pub fn new(texture: &'t Texture, sprite_size: Vector2u) -> SpriteSheet<'t> {
         SpriteSheet {
             texture,
             sprite_size,
@@ -24,7 +24,7 @@ impl SpriteSheet {
 
     pub fn sprite(&self, x: i32, y: i32) -> Sprite {
         Sprite {
-            sheet: *self,
+            sheet: self,
             position: Vector2i::new(x, y),
         }
     }
@@ -53,13 +53,13 @@ impl SpriteSheet {
 
 ///Represents part of a sprite sheet drawn on a quad.
 #[derive(Copy, Clone, Debug)]
-pub struct Sprite {
-    sheet: SpriteSheet,
+pub struct Sprite<'s> {
+    sheet: &'s SpriteSheet<'s>,
     pub position: Vector2i,
 }
 
-impl Sprite {
-    pub fn texture(&self) -> Texture {
+impl<'s> Sprite<'s> {
+    pub fn texture(&self) -> &'s Texture {
         self.sheet.texture
     }
 

@@ -1,11 +1,3 @@
-use super::{
-    batches::{Batch, BatchList, DrawCall},
-    camera::Camera,
-    mesh::{Mesh, MeshBuilder, Vertex},
-    shaders::{self, Program},
-    sprites::Sprite,
-    Texture,
-};
 use gl;
 use maths::{Vector2f, Vector2u, Vector3f};
 use resources::{self, ResourceLoader};
@@ -15,6 +7,15 @@ use std::{
     collections::HashMap,
     fmt,
     path::{Path, PathBuf},
+    ptr,
+};
+use super::{
+    batches::{Batch, BatchList, DrawCall},
+    camera::Camera,
+    mesh::{Mesh, MeshBuilder, Vertex},
+    shaders::{self, Program},
+    sprites::Sprite,
+    Texture,
 };
 use transform::Transform;
 
@@ -310,7 +311,7 @@ impl<'a> GraphicsManager<'a> {
         self.batches.insert(&DrawCall {
             program: self.program,
             mesh: self.quad,
-            texture: sprite.texture(),
+            texture: *sprite.texture(),
             batch_vbo: self.quad.batch_vbo(),
             tex_position: sprite.gl_position(),
             matrix: camera.matrix(self.window.size().into()) * transform.matrix(),
@@ -343,7 +344,7 @@ impl<'a> GraphicsManager<'a> {
                 gl::TRIANGLES,                         //Draw mode
                 batch.mesh().indices_count() as i32,   //Number of indices
                 gl::UNSIGNED_INT,                      //Type of indices
-                0 as *const gl::types::GLvoid,         //Starting index
+                ptr::null(),         //Starting index
                 batch.obj_count() as gl::types::GLint, //Number of objects in batch
             );
         }

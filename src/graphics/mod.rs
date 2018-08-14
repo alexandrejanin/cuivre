@@ -22,7 +22,7 @@ pub type TextureID = gl::types::GLuint;
 ///ID of loaded OpenGL Program
 pub type ProgramID = gl::types::GLuint;
 
-///Represents a texture loaded in OpenGL.
+/// Contains ID and metadata of a texture loaded in OpenGL.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Texture {
     id: TextureID,

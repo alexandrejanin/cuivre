@@ -5,6 +5,7 @@ extern crate image;
 extern crate ron;
 extern crate sdl2;
 extern crate serde;
+extern crate core;
 
 pub use sdl2::event::{Event, WindowEvent};
 
