@@ -1,7 +1,7 @@
+use super::DrawingError;
 use gl;
 use maths::{Vector2f, Vector3f};
-use std::{self, mem, ptr};
-use super::manager::DrawingError;
+use std::{cmp, mem, ptr};
 
 //Max amount of instances in a batch
 pub const MAX_BATCH_SIZE: usize = 1000;
@@ -18,13 +18,13 @@ pub struct Vertex {
 
 impl Vertex {
     pub fn attrib_arrays() {
-        let stride = std::mem::size_of::<Self>();
+        let stride = mem::size_of::<Self>();
 
         unsafe {
             //Position
             Vertex::attrib_array(stride, 0, 0, 3);
             //Color
-            Vertex::attrib_array(stride, 1, std::mem::size_of::<Vector3f>(), 2);
+            Vertex::attrib_array(stride, 1, mem::size_of::<Vector3f>(), 2);
         }
     }
 
@@ -95,13 +95,13 @@ impl PartialEq for Mesh {
 impl Eq for Mesh {}
 
 impl PartialOrd for Mesh {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
 impl Ord for Mesh {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
         //Sort by EBO, then VAO
         if self.ebo != other.ebo {
             self.ebo.cmp(&other.ebo)
@@ -151,7 +151,7 @@ impl MeshBuilder {
             gl::BindBuffer(gl::ARRAY_BUFFER, vbo);
             gl::BufferData(
                 gl::ARRAY_BUFFER,
-                (self.vertices.len() * std::mem::size_of::<Vertex>()) as gl::types::GLsizeiptr, //Data length
+                (self.vertices.len() * mem::size_of::<Vertex>()) as gl::types::GLsizeiptr, //Data length
                 self.vertices.as_ptr() as *const gl::types::GLvoid, //Data location
                 gl::STATIC_DRAW,
             );
@@ -160,8 +160,7 @@ impl MeshBuilder {
             gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, ebo);
             gl::BufferData(
                 gl::ELEMENT_ARRAY_BUFFER,
-                (self.indices.len() * std::mem::size_of::<gl::types::GLuint>())
-                    as gl::types::GLsizeiptr, //Data length
+                (self.indices.len() * mem::size_of::<gl::types::GLuint>()) as gl::types::GLsizeiptr, //Data length
                 self.indices.as_ptr() as *const gl::types::GLvoid, //Data location
                 gl::STATIC_DRAW,
             );

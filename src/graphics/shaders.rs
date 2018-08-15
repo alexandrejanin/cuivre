@@ -1,13 +1,13 @@
-use super::ProgramID;
 use cgmath::{Array, Matrix};
 use gl;
 use maths::{Matrix4f, Vector2f, Vector4f};
 use resources::{self, ResourceLoader};
 use std::{
-    self,
+    error,
     ffi::{self, CStr, CString},
     fmt::{self, Display, Formatter},
     path::Path,
+    ptr,
 };
 
 ///Errors related to shaders.
@@ -53,8 +53,8 @@ impl Display for ShaderError {
     }
 }
 
-impl std::error::Error for ShaderError {
-    fn cause(&self) -> Option<&std::error::Error> {
+impl error::Error for ShaderError {
+    fn cause(&self) -> Option<&error::Error> {
         match self {
             ShaderError::NulError(error) => Some(error),
             ShaderError::ResourceError(error) => Some(error),
@@ -63,6 +63,9 @@ impl std::error::Error for ShaderError {
         }
     }
 }
+
+///ID of loaded OpenGL Program
+pub type ProgramID = gl::types::GLuint;
 
 /// Represents an OpenGL shader program.
 /// Required for drawing anything to the screen.
@@ -232,7 +235,7 @@ impl Program {
                 gl::GetProgramInfoLog(
                     program_id,
                     error_length,
-                    std::ptr::null_mut(),
+                    ptr::null_mut(),
                     error.as_ptr() as *mut gl::types::GLchar,
                 );
             }
@@ -285,7 +288,7 @@ impl Shader {
 
         //Compile shader from source
         unsafe {
-            gl::ShaderSource(id, 1, &source.as_ptr(), std::ptr::null());
+            gl::ShaderSource(id, 1, &source.as_ptr(), ptr::null());
             gl::CompileShader(id);
         }
 
@@ -314,7 +317,7 @@ impl Shader {
             gl::GetShaderInfoLog(
                 id,
                 error_length,
-                std::ptr::null_mut(),
+                ptr::null_mut(),
                 error_log.as_ptr() as *mut gl::types::GLchar,
             );
         }

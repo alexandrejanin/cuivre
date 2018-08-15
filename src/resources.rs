@@ -1,3 +1,4 @@
+use graphics::text::{Font, FontError};
 use image;
 use ron;
 use serde::de::DeserializeOwned;
@@ -7,6 +8,7 @@ use std::{
     fs::{self, File},
     io::{self, Read},
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 ///Errors related to resource loading.
@@ -14,6 +16,8 @@ use std::{
 pub enum ResourceError {
     ///The ResourceLoader could not find the path to the current executable.
     ExecutablePathNotFound,
+
+    Font(PathBuf, FontError),
     Io(PathBuf, io::Error),
     Image(PathBuf, image::ImageError),
     Ron(PathBuf, ron::de::Error),
@@ -25,6 +29,7 @@ impl Display for ResourceError {
             ResourceError::ExecutablePathNotFound => {
                 write!(f, "Error: Could not locate executable path.")
             }
+            ResourceError::Font(path, error) => write!(f, "{:?}: {}", path, error),
             ResourceError::Io(path, error) => write!(f, "{:?}: {}", path, error),
             ResourceError::Image(path, error) => write!(f, "{:?}: {}", path, error),
             ResourceError::Ron(path, error) => write!(f, "{:?}: {}", path, error),
@@ -35,6 +40,7 @@ impl Display for ResourceError {
 impl std::error::Error for ResourceError {
     fn cause(&self) -> Option<&std::error::Error> {
         match self {
+            ResourceError::Font(_, error) => Some(error),
             ResourceError::Io(_, error) => Some(error),
             ResourceError::Image(_, error) => Some(error),
             ResourceError::Ron(_, error) => Some(error),
@@ -75,6 +81,12 @@ impl ResourceLoader {
         ron::de::from_str::<T>(&text).map_err(|error| ResourceError::Ron(path.to_owned(), error))
     }
 
+    pub fn load_bytes(&self, path: &Path) -> Result<Vec<u8>, ResourceError> {
+        let path = self.get_path(path);
+
+        fs::read(&path).map_err(|error| ResourceError::Io(path, error))
+    }
+
     ///Load an image from a PNG file.
     pub fn load_png(&self, path: &Path) -> Result<image::RgbaImage, ResourceError> {
         let path = self.get_path(path);
@@ -99,6 +111,11 @@ impl ResourceLoader {
             .map_err(|error| ResourceError::Io(path.to_owned(), error))?;
 
         Ok(string)
+    }
+
+    pub fn load_font(&self, path: &Path) -> Result<Font, ResourceError> {
+        Font::from_bytes(Arc::from(self.load_bytes(path)?))
+            .map_err(|error| ResourceError::Font(path.to_owned(), error))
     }
 
     ///Returns absolute path when provided with a path relative to the resources root directory.
