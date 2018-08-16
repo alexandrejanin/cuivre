@@ -1,9 +1,37 @@
 use gl;
+use image;
 use maths::Vector2u;
-use std::cmp::Ordering;
+use resources::Loadable;
+use std::{cmp::Ordering, error, fmt};
 
 /// ID of loaded OpenGL Texture
 pub type TextureID = gl::types::GLuint;
+
+/// Errors related to texture handling.
+#[derive(Debug)]
+pub enum TextureError {
+    /// Error related to image handling.
+    ImageError(image::ImageError),
+    /// Tried creating texture from invalid data.
+    /// Contains texture width, height, and data length.
+    InvalidTextureData(u32, u32, usize),
+}
+
+impl fmt::Display for TextureError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            TextureError::ImageError(error) => write!(f, "{}", error),
+            TextureError::InvalidTextureData(width, height, len) => write!(
+                    f,
+                    //TODO: nicer message
+                    "TextureError: 4x{}x{} != {}",
+                    width, height, len
+                ),
+        }
+    }
+}
+
+impl error::Error for TextureError {}
 
 /// Texture wrap mode.
 ///
@@ -22,6 +50,8 @@ pub enum WrapMode {
 /// Default: `NearestMipmapNearest`
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub enum MinFilterMode {
+    Nearest = gl::NEAREST as isize,
+    Linear = gl::LINEAR as isize,
     NearestMipmapNearest = gl::NEAREST_MIPMAP_NEAREST as isize,
     LinearMipmapNearest = gl::LINEAR_MIPMAP_NEAREST as isize,
     NearestMipmapLinear = gl::NEAREST_MIPMAP_LINEAR as isize,
@@ -30,26 +60,69 @@ pub enum MinFilterMode {
 
 /// Texture magnification filtering mode.
 ///
-/// Default: `NearestMipmapNearest`
+/// Default: `Nearest`
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub enum MaxFilterMode {
     Nearest = gl::NEAREST as isize,
     Linear = gl::LINEAR as isize,
 }
 
+/// Options for texture display.
+#[derive(Debug, Copy, Clone)]
+pub struct TextureOptions {
+    pub h_wrap_mode: WrapMode,
+    pub v_wrap_mode: WrapMode,
+    pub min_filter_mode: MinFilterMode,
+    pub max_filter_mode: MaxFilterMode,
+}
+
+impl Default for TextureOptions {
+    fn default() -> Self {
+        Self {
+            h_wrap_mode: WrapMode::Repeat,
+            v_wrap_mode: WrapMode::Repeat,
+            min_filter_mode: MinFilterMode::NearestMipmapNearest,
+            max_filter_mode: MaxFilterMode::Nearest,
+        }
+    }
+}
+
 /// Contains ID and metadata of a texture loaded in OpenGL.
 ///
 /// This owns the texture, meaning the OpenGL texture is deleted when
 /// `Texture` goes out of scope.
-#[derive(Debug, PartialEq, Eq)]
+///
+/// NOTE: Make sure to create a `GraphicsManager` before creating any
+/// texture, otherwise OpenGL won't be loaded properly!
+#[derive(Debug)]
 pub struct Texture {
     id: TextureID,
     size: Vector2u,
-    h_wrap_mode: WrapMode,
-    v_wrap_mode: WrapMode,
-    min_filter_mode: MinFilterMode,
-    max_filter_mode: MaxFilterMode,
+    options: TextureOptions,
 }
+
+impl Loadable for Texture {
+    type LoadOptions = TextureOptions;
+    type LoadResult = Result<Self, TextureError>;
+
+    fn load(data: &[u8], options: TextureOptions) -> Result<Self, TextureError> {
+        //Load image from bytes
+        let img = image::load_from_memory(data)
+            .map_err(TextureError::ImageError)?
+            .to_rgba();
+        let (width, height) = img.dimensions();
+
+        Self::from_bytes(img.as_ref(), options, width, height)
+    }
+}
+
+impl PartialEq for Texture {
+    fn eq(&self, other: &Texture) -> bool {
+        self.id == other.id
+    }
+}
+
+impl Eq for Texture {}
 
 impl PartialOrd for Texture {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
@@ -60,33 +133,7 @@ impl PartialOrd for Texture {
 /// Sorting for drawcall batching.
 impl Ord for Texture {
     fn cmp(&self, other: &Self) -> Ordering {
-        match self.id.cmp(&other.id) {
-            Ordering::Less => return Ordering::Less,
-            Ordering::Greater => return Ordering::Greater,
-            _ => {}
-        }
-        match self.h_wrap_mode.cmp(&other.h_wrap_mode) {
-            Ordering::Less => return Ordering::Less,
-            Ordering::Greater => return Ordering::Greater,
-            _ => {}
-        }
-        match self.v_wrap_mode.cmp(&other.v_wrap_mode) {
-            Ordering::Less => return Ordering::Less,
-            Ordering::Greater => return Ordering::Greater,
-            _ => {}
-        }
-        match self.min_filter_mode.cmp(&other.min_filter_mode) {
-            Ordering::Less => return Ordering::Less,
-            Ordering::Greater => return Ordering::Greater,
-            _ => {}
-        }
-        match self.max_filter_mode.cmp(&other.max_filter_mode) {
-            Ordering::Less => return Ordering::Less,
-            Ordering::Greater => return Ordering::Greater,
-            _ => {}
-        }
-
-        Ordering::Equal
+        self.id.cmp(&other.id)
     }
 }
 
@@ -97,24 +144,6 @@ impl Drop for Texture {
 }
 
 impl Texture {
-    pub fn new(
-        id: TextureID,
-        size: Vector2u,
-        h_wrap_mode: WrapMode,
-        v_wrap_mode: WrapMode,
-        min_filter_mode: MinFilterMode,
-        max_filter_mode: MaxFilterMode,
-    ) -> Self {
-        Self {
-            id,
-            size,
-            h_wrap_mode,
-            v_wrap_mode,
-            min_filter_mode,
-            max_filter_mode,
-        }
-    }
-
     /// ID of the loaded texture in OpenGL.
     pub fn id(&self) -> TextureID {
         self.id
@@ -133,5 +162,87 @@ impl Texture {
     /// Height of the texture in pixels.
     pub fn height(&self) -> u32 {
         self.size.y
+    }
+
+    pub fn options(&self) -> &TextureOptions {
+        &self.options
+    }
+
+    /// Create texture from raw pixel data.
+    pub fn from_bytes(
+        data: &[u8],
+        options: TextureOptions,
+        width: u32,
+        height: u32,
+    ) -> Result<Self, TextureError> {
+        if data.len() != (4 * width * height) as usize {
+            return Err(TextureError::InvalidTextureData(width, height, data.len()));
+        }
+
+        //Allocate texture
+        let mut id = 0;
+
+        unsafe {
+            //Create texture
+            gl::GenTextures(1, &mut id);
+
+            //Bind texture
+            gl::BindTexture(gl::TEXTURE_2D, id);
+
+            //Fill texture
+            gl::TexImage2D(
+                gl::TEXTURE_2D,
+                0,
+                gl::RGBA as gl::types::GLint,
+                width as gl::types::GLint,
+                height as gl::types::GLint,
+                0,
+                gl::RGBA,
+                gl::UNSIGNED_BYTE,
+                data.as_ptr() as *const gl::types::GLvoid,
+            );
+
+            //Texture wrapping
+            gl::TexParameteri(
+                gl::TEXTURE_2D,
+                gl::TEXTURE_WRAP_S,
+                options.h_wrap_mode as gl::types::GLint,
+            );
+            gl::TexParameteri(
+                gl::TEXTURE_2D,
+                gl::TEXTURE_WRAP_T,
+                options.v_wrap_mode as gl::types::GLint,
+            );
+
+            //Texture filtering
+            gl::TexParameteri(
+                gl::TEXTURE_2D,
+                gl::TEXTURE_MIN_FILTER,
+                options.min_filter_mode as gl::types::GLint,
+            );
+            gl::TexParameteri(
+                gl::TEXTURE_2D,
+                gl::TEXTURE_MAG_FILTER,
+                options.max_filter_mode as gl::types::GLint,
+            );
+
+            //Generate mipmaps if min_filter_mode requires it
+            match options.min_filter_mode {
+                MinFilterMode::NearestMipmapNearest
+                | MinFilterMode::LinearMipmapNearest
+                | MinFilterMode::NearestMipmapLinear
+                | MinFilterMode::LinearMipmapLinear => gl::GenerateMipmap(gl::TEXTURE_2D),
+                MinFilterMode::Nearest | MinFilterMode::Linear => {}
+            }
+
+            //Unbind texture
+            gl::BindTexture(gl::TEXTURE_2D, 0);
+        }
+
+        Ok(Self {
+            id,
+            size: Vector2u::new(width, height),
+            options,
+        })
     }
 }

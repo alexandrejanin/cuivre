@@ -12,7 +12,6 @@ pub struct DrawCall<'t> {
     pub program: Program,
     pub mesh: Mesh,
     pub texture: &'t Texture,
-    pub batch_vbo: gl::types::GLuint,
     pub tex_position: Vector4f,
     pub matrix: Matrix4f,
 }
@@ -27,9 +26,6 @@ pub struct Batch {
     // TODO: use reference instead to get lifetime checking on the texture
     /// Texture to be rendered.
     texture: TextureID,
-
-    /// VBO containing transform matrices and texture info for each object
-    batch_vbo: gl::types::GLuint,
 
     /// Stores the objects' info before it is passed to the VBO
     buffer: [f32; BATCH_INSTANCE_SIZE * MAX_BATCH_SIZE],
@@ -59,7 +55,6 @@ impl Batch {
             program: drawcall.program,
             mesh: drawcall.mesh,
             texture: drawcall.texture.id(),
-            batch_vbo: drawcall.batch_vbo,
             buffer: [0.0; BATCH_INSTANCE_SIZE * MAX_BATCH_SIZE],
             obj_count: 0,
         };
@@ -102,7 +97,7 @@ impl Batch {
 
     pub fn buffer_data(&self) {
         unsafe {
-            gl::BindBuffer(gl::ARRAY_BUFFER, self.batch_vbo);
+            gl::BindBuffer(gl::ARRAY_BUFFER, self.mesh.batch_vbo());
             gl::BufferData(
                 gl::ARRAY_BUFFER,
                 (size_of::<f32>() * self.obj_count * BATCH_INSTANCE_SIZE) as gl::types::GLsizeiptr,

@@ -1,14 +1,8 @@
-use graphics::text::{Font, FontError};
-use image;
-use ron;
-use serde::de::DeserializeOwned;
 use std::{
-    self,
+    env, error,
     fmt::{self, Display, Formatter},
-    fs::{self, File},
-    io::{self, Read},
+    fs, io,
     path::{Path, PathBuf},
-    sync::Arc,
 };
 
 ///Errors related to resource loading.
@@ -16,11 +10,8 @@ use std::{
 pub enum ResourceError {
     ///The ResourceLoader could not find the path to the current executable.
     ExecutablePathNotFound,
-
-    Font(PathBuf, FontError),
-    Io(PathBuf, io::Error),
-    Image(PathBuf, image::ImageError),
-    Ron(PathBuf, ron::de::Error),
+    ///Error related to IO operations.
+    Io(io::Error),
 }
 
 impl Display for ResourceError {
@@ -29,25 +20,40 @@ impl Display for ResourceError {
             ResourceError::ExecutablePathNotFound => {
                 write!(f, "Error: Could not locate executable path.")
             }
-            ResourceError::Font(path, error) => write!(f, "{:?}: {}", path, error),
-            ResourceError::Io(path, error) => write!(f, "{:?}: {}", path, error),
-            ResourceError::Image(path, error) => write!(f, "{:?}: {}", path, error),
-            ResourceError::Ron(path, error) => write!(f, "{:?}: {}", path, error),
+            ResourceError::Io(error) => write!(f, "{}", error),
         }
     }
 }
 
-impl std::error::Error for ResourceError {
-    fn cause(&self) -> Option<&std::error::Error> {
+impl error::Error for ResourceError {
+    fn cause(&self) -> Option<&error::Error> {
         match self {
-            ResourceError::Font(_, error) => Some(error),
-            ResourceError::Io(_, error) => Some(error),
-            ResourceError::Image(_, error) => Some(error),
-            ResourceError::Ron(_, error) => Some(error),
+            ResourceError::Io(error) => Some(error),
 
             _ => None,
         }
     }
+}
+
+/// Represents a type that can be loaded from a byte sequence
+/// (often from a file).
+pub trait Loadable
+where
+    Self: Sized,
+{
+    /// Type of an additional argument that can be supplied to the `load` method.
+    ///
+    /// Can use () if additional options are not needed for the type.
+    type LoadOptions;
+
+    /// Type returned by the `load` method.
+    ///
+    /// Will usually be either `Self` if the loading cannot fail,
+    /// or some form of `Result<Self, Error>` if the loading can fail.
+    type LoadResult;
+
+    /// Loads the object from a byte sequence.
+    fn load(data: &[u8], options: Self::LoadOptions) -> Self::LoadResult;
 }
 
 ///Loads and manages resource files: text, images etc.
@@ -60,8 +66,7 @@ impl ResourceLoader {
     /// Can fail if the executable directory cannot be acquired.
     pub fn new(root: &Path) -> Result<ResourceLoader, ResourceError> {
         //Get path to executable
-        let executable_name =
-            std::env::current_exe().map_err(|error| ResourceError::Io(root.to_owned(), error))?;
+        let executable_name = env::current_exe().map_err(ResourceError::Io)?;
 
         //Get parent dir
         let executable_dir = executable_name
@@ -75,57 +80,22 @@ impl ResourceLoader {
     }
 
     ///Deserializes a config object from a file
-    pub fn load_object<T: DeserializeOwned>(&self, path: &Path) -> Result<T, ResourceError> {
-        let text = self.load_string(path)?;
-
-        ron::de::from_str::<T>(&text).map_err(|error| ResourceError::Ron(path.to_owned(), error))
+    pub fn load<T: Loadable>(
+        &self,
+        path: &Path,
+        options: T::LoadOptions,
+    ) -> Result<T::LoadResult, ResourceError> {
+        Ok(T::load(&self.load_bytes(path)?, options))
     }
 
-    pub fn load_bytes(&self, path: &Path) -> Result<Vec<u8>, ResourceError> {
+    fn load_bytes(&self, path: &Path) -> Result<Vec<u8>, ResourceError> {
         let path = self.get_path(path);
 
-        fs::read(&path).map_err(|error| ResourceError::Io(path, error))
-    }
-
-    ///Load an image from a PNG file.
-    pub fn load_png(&self, path: &Path) -> Result<image::RgbaImage, ResourceError> {
-        let path = self.get_path(path);
-
-        Ok(image::open(&path)
-            .map_err(|error| ResourceError::Image(path.to_owned(), error))?
-            .to_rgba())
-    }
-
-    ///Load a String from a file.
-    pub fn load_string(&self, path: &Path) -> Result<String, ResourceError> {
-        //Open file
-        let mut file = self
-            .get_file(path)
-            .map_err(|error| ResourceError::Io(path.to_owned(), error))?;
-
-        //Allocate string
-        let mut string = String::new();
-
-        //Read file to string
-        file.read_to_string(&mut string)
-            .map_err(|error| ResourceError::Io(path.to_owned(), error))?;
-
-        Ok(string)
-    }
-
-    pub fn load_font(&self, path: &Path) -> Result<Font, ResourceError> {
-        Font::from_bytes(Arc::from(self.load_bytes(path)?))
-            .map_err(|error| ResourceError::Font(path.to_owned(), error))
+        fs::read(&path).map_err(ResourceError::Io)
     }
 
     ///Returns absolute path when provided with a path relative to the resources root directory.
     fn get_path(&self, path: &Path) -> PathBuf {
         self.res_root.join(path)
-    }
-
-    ///Opens file from resources root directory
-    fn get_file(&self, path: &Path) -> io::Result<File> {
-        let file_path = self.get_path(path);
-        fs::File::open(file_path)
     }
 }

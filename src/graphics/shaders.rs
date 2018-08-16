@@ -1,21 +1,19 @@
 use cgmath::{Array, Matrix};
 use gl;
 use maths::{Matrix4f, Vector2f, Vector4f};
-use resources::{self, ResourceLoader};
+use resources::Loadable;
 use std::{
     error,
-    ffi::{self, CStr, CString},
+    ffi::{self, CString},
     fmt::{self, Display, Formatter},
-    path::Path,
-    ptr,
+    ptr, str,
 };
 
 ///Errors related to shaders.
 #[derive(Debug)]
 pub enum ShaderError {
     NulError(ffi::NulError),
-    ///An error related to resources handling.
-    ResourceError(resources::ResourceError),
+    Utf8Error(str::Utf8Error),
     ///OpenGL Shader could not compile. Contains OpenGL Error log.
     ShaderCompilationFailed(String),
     ///OpenGL Program could not link. Contains OpenGL Error log.
@@ -24,24 +22,12 @@ pub enum ShaderError {
     InvalidUniform(String),
 }
 
-impl From<resources::ResourceError> for ShaderError {
-    fn from(error: resources::ResourceError) -> Self {
-        ShaderError::ResourceError(error)
-    }
-}
-
-impl From<ffi::NulError> for ShaderError {
-    fn from(error: ffi::NulError) -> Self {
-        ShaderError::NulError(error)
-    }
-}
-
 impl Display for ShaderError {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "Shader error: ")?;
         match self {
             ShaderError::NulError(error) => write!(f, "{}", error),
-            ShaderError::ResourceError(error) => write!(f, "{}", error),
+            ShaderError::Utf8Error(error) => write!(f, "{}", error),
             ShaderError::ShaderCompilationFailed(message) => {
                 write!(f, "Shader could not compile: {}", message)
             }
@@ -57,7 +43,7 @@ impl error::Error for ShaderError {
     fn cause(&self) -> Option<&error::Error> {
         match self {
             ShaderError::NulError(error) => Some(error),
-            ShaderError::ResourceError(error) => Some(error),
+            ShaderError::Utf8Error(error) => Some(error),
 
             _ => None,
         }
@@ -182,7 +168,7 @@ impl Program {
 
     ///Returns uniform location in program from uniform name.
     fn get_uniform_location(self, name: &str) -> Result<gl::types::GLint, ShaderError> {
-        let uniform_name = CString::new(name)?;
+        let uniform_name = CString::new(name).map_err(ShaderError::NulError)?;
 
         let loc = unsafe { gl::GetUniformLocation(self.id, uniform_name.as_ptr()) };
 
@@ -193,20 +179,8 @@ impl Program {
         }
     }
 
-    ///Create Program from vertex and fragment shader paths.
-    pub fn load_shaders(
-        resource_loader: &ResourceLoader,
-        vertex_path: &Path,
-        fragment_path: &Path,
-    ) -> Result<Program, ShaderError> {
-        Program::from_shaders(
-            Shader::from_file(resource_loader, gl::VERTEX_SHADER, vertex_path)?,
-            Shader::from_file(resource_loader, gl::FRAGMENT_SHADER, fragment_path)?,
-        )
-    }
-
     ///Create Program from Shaders. Deletes shaders afterwards.
-    fn from_shaders(
+    pub fn from_shaders(
         vertex_shader: Shader,
         fragment_shader: Shader,
     ) -> Result<Program, ShaderError> {
@@ -256,6 +230,23 @@ impl Program {
     }
 }
 
+pub enum ShaderType {
+    Vertex = gl::VERTEX_SHADER as isize,
+    Fragment = gl::FRAGMENT_SHADER as isize,
+}
+
+impl Loadable for Shader {
+    type LoadOptions = ShaderType;
+    type LoadResult = Result<Self, ShaderError>;
+
+    fn load(data: &[u8], shader_type: ShaderType) -> Result<Self, ShaderError> {
+        Self::from_source(
+            &str::from_utf8(data).map_err(ShaderError::Utf8Error)?,
+            shader_type,
+        )
+    }
+}
+
 ///Represents an OpenGL shader.
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Copy, Clone)]
 pub struct Shader {
@@ -268,27 +259,17 @@ impl Shader {
         self.id
     }
 
-    ///Creates shader from source file.
-    ///shader_type: usually gl::VERTEX_SHADER or gl::FRAGMENT_SHADER
-    pub fn from_file(
-        resource_loader: &ResourceLoader,
-        shader_type: gl::types::GLuint,
-        path: &Path,
-    ) -> Result<Shader, ShaderError> {
-        let text = CString::new(resource_loader.load_string(path)?)?;
-
-        Shader::from_source(shader_type, &text)
-    }
-
     ///Create a new shader from GLSL source (provided as a CString), returns Shader object or OpenGL error log.
     ///shader_type: usually gl::VERTEX_SHADER or gl::FRAGMENT_SHADER
-    fn from_source(shader_type: gl::types::GLuint, source: &CStr) -> Result<Shader, ShaderError> {
+    pub fn from_source(source: &str, shader_type: ShaderType) -> Result<Shader, ShaderError> {
+        let cstring_source = CString::new(source).map_err(ShaderError::NulError)?;
+
         //Create shader and get ID
-        let id = unsafe { gl::CreateShader(shader_type) };
+        let id = unsafe { gl::CreateShader(shader_type as gl::types::GLuint) };
 
         //Compile shader from source
         unsafe {
-            gl::ShaderSource(id, 1, &source.as_ptr(), ptr::null());
+            gl::ShaderSource(id, 1, &cstring_source.as_ptr(), ptr::null());
             gl::CompileShader(id);
         }
 
