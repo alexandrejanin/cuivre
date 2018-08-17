@@ -1,17 +1,16 @@
+use gl;
+use maths::{Vector2f, Vector2u, Vector3f};
+use sdl2;
 use self::{
-    batches::{Batch, BatchList, DrawCall},
+    batches::{Batch, DrawCall},
     camera::Camera,
     mesh::{Mesh, MeshBuilder, Vertex},
-    shaders::Program,
     shaders::{Shader, ShaderType},
+    shaders::Program,
     sprites::Sprite,
     text::{Font, FontError},
     textures::Texture,
 };
-use gl;
-use maths::{Vector2f, Vector2u, Vector3f};
-use resources;
-use sdl2;
 use std::{error, fmt, ptr};
 use transform::Transform;
 
@@ -34,8 +33,6 @@ pub enum DrawingError {
     MeshEBONotInitialized,
     /// Tried drawing a mesh that had no VAO set.
     MeshVAONotInitialized,
-    /// Error related to reources handling.
-    ResourceError(resources::ResourceError),
     /// Error related to OpenGL shaders.
     ShaderError(shaders::ShaderError),
     /// Error related to window building.
@@ -47,7 +44,6 @@ impl fmt::Display for DrawingError {
         match self {
             DrawingError::SdlError(string) => write!(f, "{}", string),
             DrawingError::GlError(string) => write!(f, "{}", string),
-            DrawingError::ResourceError(error) => write!(f, "{}", error),
             DrawingError::ShaderError(error) => write!(f, "{}", error),
             DrawingError::WindowBuildError(error) => write!(f, "{}", error),
             DrawingError::MeshEBONotInitialized => write!(f, "Mesh EBO not initialized"),
@@ -59,7 +55,6 @@ impl fmt::Display for DrawingError {
 impl error::Error for DrawingError {
     fn cause(&self) -> Option<&error::Error> {
         match self {
-            DrawingError::ResourceError(error) => Some(error),
             DrawingError::ShaderError(error) => Some(error),
             DrawingError::WindowBuildError(error) => Some(error),
 
@@ -89,7 +84,7 @@ pub struct GraphicsManager {
     quad: Mesh,
 
     /// All draw calls to be rendered this frame.
-    batches: BatchList,
+    batches: Vec<Batch>,
 }
 
 impl GraphicsManager {
@@ -180,7 +175,7 @@ impl GraphicsManager {
             gl_context,
             program,
             quad,
-            batches: BatchList::new(),
+            batches: Vec::new(),
         })
     }
 
@@ -196,15 +191,86 @@ impl GraphicsManager {
         }
     }
 
-    /// Renders the current frame.
+    /// Draws a `Sprite` on a textured quad mesh.
+    ///
+    /// `transform` specifies the position, scale, and rotation
+    /// of the drawn `Sprite`.
+    ///
+    /// `Camera` is the camera the `Sprite` is viewed from.
+    ///
+    /// Note: by default all sprites are square. For non-square sprites,
+    /// you must use `transform.scale` to scale the quad appropriately.
+    pub fn draw_sprite(&mut self, sprite: &Sprite, transform: &Transform, camera: &Camera) {
+        let drawcall = DrawCall {
+            program: self.program,
+            mesh: self.quad,
+            texture: sprite.texture(),
+            tex_position: sprite.gl_position(),
+            matrix: camera.matrix(self.window.size().into()) * transform.matrix(),
+        };
+
+        self.queue_drawcall(&drawcall);
+    }
+
+    /// Draws string.
+    pub fn draw_text(
+        &mut self,
+        text: &str,
+        font: &mut Font,
+        transform: &Transform,
+        camera: &Camera,
+    ) -> Result<(), FontError> {
+        let mut offset = 0.0;
+
+        for char_position in font.get_glyphs(text, Vector2f::new(20.0, 30.0), 1000, (0xFF, 0x88, 0x00))? {
+            let texture = font.texture();
+
+            let mut char_transform = *transform;
+            char_transform.position.x += offset;
+            //char_transform.position.y += char_position.world_position.y;
+
+            offset += 1.0;
+
+            let drawcall = DrawCall {
+                program: self.program,
+                mesh: self.quad,
+                texture,
+                tex_position: char_position.texture_position,
+                matrix: camera.matrix(self.window.size().into()) * char_transform.matrix(),
+            };
+
+            self.queue_drawcall(&drawcall);
+        }
+
+        Ok(())
+    }
+
+    /// Adds a drawcall to the render queue.
+    ///
+    /// If no suitable batch is found, a new one is created.
+    pub fn queue_drawcall(&mut self, drawcall: &DrawCall) {
+        for batch in &mut self.batches {
+            //Attempts to add drawcall to batch
+            if batch.add(drawcall) {
+                return;
+            }
+        }
+
+        //Could not find suitable batch, create a new one
+        self.batches.push(Batch::new(drawcall));
+    }
+
+    /// Renders the current queued batches.
     pub fn render(&mut self) -> Result<(), DrawingError> {
         //Clear render target
         unsafe {
             gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
         }
 
+        //println!("Rendering {} batches", self.batches.len());
+
         //Render batches
-        for batch in self.batches.iter() {
+        for batch in &self.batches {
             self.draw(batch)?
         }
 
@@ -213,39 +279,6 @@ impl GraphicsManager {
 
         //Swap buffers
         self.window.gl_swap_window();
-
-        Ok(())
-    }
-
-    /// Add sprite to batch list.
-    pub fn draw_sprite(&mut self, sprite: &Sprite, transform: &Transform, camera: &Camera) {
-        self.batches.insert(&DrawCall {
-            program: self.program,
-            mesh: self.quad,
-            texture: sprite.texture(),
-            tex_position: sprite.gl_position(),
-            matrix: camera.matrix(self.window.size().into()) * transform.matrix(),
-        })
-    }
-
-    pub fn draw_text(
-        &mut self,
-        text: &str,
-        font: &Font,
-        transform: &Transform,
-        camera: &Camera,
-    ) -> Result<(), FontError> {
-        let texture = font.texture();
-
-        for tex_position in font.tex_positions(text)? {
-            self.batches.insert(&DrawCall {
-                program: self.program,
-                mesh: self.quad,
-                texture,
-                tex_position,
-                matrix: camera.matrix(self.window.size().into()) * transform.matrix(),
-            })
-        }
 
         Ok(())
     }

@@ -2,6 +2,8 @@
 extern crate cgmath;
 extern crate gl;
 extern crate image;
+#[macro_use]
+extern crate lazy_static;
 extern crate rusttype;
 extern crate sdl2;
 extern crate unicode_normalization;

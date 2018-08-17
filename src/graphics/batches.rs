@@ -1,11 +1,11 @@
+use gl;
+use maths::{Matrix4f, Vector4f};
+use std::mem;
 use super::{
-    mesh::{Mesh, BATCH_INSTANCE_SIZE, MAX_BATCH_SIZE},
+    mesh::{BATCH_INSTANCE_SIZE, MAX_BATCH_SIZE, Mesh},
     shaders::Program,
     textures::{Texture, TextureID},
 };
-use gl;
-use maths::{Matrix4f, Vector4f};
-use std::{mem::size_of, slice::Iter};
 
 #[derive(Debug)]
 pub struct DrawCall<'t> {
@@ -69,9 +69,9 @@ impl Batch {
         if drawcall.program != self.program
             || drawcall.mesh != self.mesh
             || drawcall.texture.id() != self.texture
-        {
-            return false;
-        }
+            {
+                return false;
+            }
 
         //Check if batch is full
         if self.obj_count >= MAX_BATCH_SIZE {
@@ -100,45 +100,10 @@ impl Batch {
             gl::BindBuffer(gl::ARRAY_BUFFER, self.mesh.batch_vbo());
             gl::BufferData(
                 gl::ARRAY_BUFFER,
-                (size_of::<f32>() * self.obj_count * BATCH_INSTANCE_SIZE) as gl::types::GLsizeiptr,
+                (mem::size_of::<f32>() * self.obj_count * BATCH_INSTANCE_SIZE) as gl::types::GLsizeiptr,
                 self.buffer.as_ptr() as *const gl::types::GLvoid,
                 gl::STREAM_DRAW,
             );
         }
-    }
-}
-
-/// Contains and manages batches to be drawn.
-pub struct BatchList {
-    batches: Vec<Batch>,
-}
-
-impl BatchList {
-    /// Initializes an empty BatchList.
-    pub fn new() -> Self {
-        Self {
-            batches: Vec::new(),
-        }
-    }
-
-    /// Adds a drawcall to the batch list, finding or creating a compatible batch.
-    pub fn insert(&mut self, drawcall: &DrawCall) {
-        for batch in &mut self.batches {
-            //Attempts to add drawcall to batch
-            if batch.add(drawcall) {
-                return;
-            }
-        }
-
-        //Could not find suitable batch, create a new one
-        self.batches.push(Batch::new(drawcall));
-    }
-
-    pub fn clear(&mut self) {
-        self.batches.clear()
-    }
-
-    pub fn iter(&self) -> Iter<Batch> {
-        self.batches.iter()
     }
 }

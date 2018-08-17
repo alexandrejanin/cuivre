@@ -2,7 +2,7 @@ use gl;
 use image;
 use maths::Vector2u;
 use resources::Loadable;
-use std::{cmp::Ordering, error, fmt};
+use std::{cmp::Ordering, error, fmt, io};
 
 /// ID of loaded OpenGL Texture
 pub type TextureID = gl::types::GLuint;
@@ -10,28 +10,54 @@ pub type TextureID = gl::types::GLuint;
 /// Errors related to texture handling.
 #[derive(Debug)]
 pub enum TextureError {
+    Io(io::Error),
     /// Error related to image handling.
     ImageError(image::ImageError),
     /// Tried creating texture from invalid data.
     /// Contains texture width, height, and data length.
-    InvalidTextureData(u32, u32, usize),
+    InvalidTextureData(u32, u32, u32, usize),
 }
 
-impl fmt::Display for TextureError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            TextureError::ImageError(error) => write!(f, "{}", error),
-            TextureError::InvalidTextureData(width, height, len) => write!(
-                    f,
-                    //TODO: nicer message
-                    "TextureError: 4x{}x{} != {}",
-                    width, height, len
-                ),
-        }
+impl From<io::Error> for TextureError {
+    fn from(error: io::Error) -> Self {
+        TextureError::Io(error)
     }
 }
 
 impl error::Error for TextureError {}
+
+impl fmt::Display for TextureError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            TextureError::Io(error) => write!(f, "{}", error),
+            TextureError::ImageError(error) => write!(f, "{}", error),
+            TextureError::InvalidTextureData(pixel_size, width, height, len) => write!(
+                f,
+                //TODO: nicer message
+                "TextureError: {}x{}x{} != {}",
+                pixel_size, width, height, len
+            ),
+        }
+    }
+}
+
+/// Texture format.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+pub enum TextureFormat {
+    Rgb = gl::RGB as isize,
+    Rgba = gl::RGBA as isize,
+}
+
+impl TextureFormat {
+    /// Length of one pixel in a texture of this format,
+    /// in bytes.
+    pub fn pixel_length(self) -> u32 {
+        match self {
+            TextureFormat::Rgb => 3,
+            TextureFormat::Rgba => 4,
+        }
+    }
+}
 
 /// Texture wrap mode.
 ///
@@ -70,6 +96,7 @@ pub enum MaxFilterMode {
 /// Options for texture display.
 #[derive(Debug, Copy, Clone)]
 pub struct TextureOptions {
+    pub format: TextureFormat,
     pub h_wrap_mode: WrapMode,
     pub v_wrap_mode: WrapMode,
     pub min_filter_mode: MinFilterMode,
@@ -79,6 +106,7 @@ pub struct TextureOptions {
 impl Default for TextureOptions {
     fn default() -> Self {
         Self {
+            format: TextureFormat::Rgba,
             h_wrap_mode: WrapMode::Repeat,
             v_wrap_mode: WrapMode::Repeat,
             min_filter_mode: MinFilterMode::NearestMipmapNearest,
@@ -103,9 +131,9 @@ pub struct Texture {
 
 impl Loadable for Texture {
     type LoadOptions = TextureOptions;
-    type LoadResult = Result<Self, TextureError>;
+    type LoadError = TextureError;
 
-    fn load(data: &[u8], options: TextureOptions) -> Result<Self, TextureError> {
+    fn load_from_bytes(data: &[u8], options: TextureOptions) -> Result<Self, TextureError> {
         //Load image from bytes
         let img = image::load_from_memory(data)
             .map_err(TextureError::ImageError)?
@@ -175,8 +203,8 @@ impl Texture {
         width: u32,
         height: u32,
     ) -> Result<Self, TextureError> {
-        if data.len() != (4 * width * height) as usize {
-            return Err(TextureError::InvalidTextureData(width, height, data.len()));
+        if data.len() != (options.format.pixel_length() * width * height) as usize {
+            return Err(TextureError::InvalidTextureData(options.format.pixel_length(), width, height, data.len()));
         }
 
         //Allocate texture
@@ -197,7 +225,7 @@ impl Texture {
                 width as gl::types::GLint,
                 height as gl::types::GLint,
                 0,
-                gl::RGBA,
+                options.format as gl::types::GLenum,
                 gl::UNSIGNED_BYTE,
                 data.as_ptr() as *const gl::types::GLvoid,
             );

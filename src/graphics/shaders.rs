@@ -6,14 +6,15 @@ use std::{
     error,
     ffi::{self, CString},
     fmt::{self, Display, Formatter},
-    ptr, str,
+    io, ptr, str,
 };
 
 ///Errors related to shaders.
 #[derive(Debug)]
 pub enum ShaderError {
-    NulError(ffi::NulError),
-    Utf8Error(str::Utf8Error),
+    Io(io::Error),
+    Nul(ffi::NulError),
+    Utf8(str::Utf8Error),
     ///OpenGL Shader could not compile. Contains OpenGL Error log.
     ShaderCompilationFailed(String),
     ///OpenGL Program could not link. Contains OpenGL Error log.
@@ -22,12 +23,19 @@ pub enum ShaderError {
     InvalidUniform(String),
 }
 
+impl From<io::Error> for ShaderError {
+    fn from(error: io::Error) -> Self {
+        ShaderError::Io(error)
+    }
+}
+
 impl Display for ShaderError {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         write!(f, "Shader error: ")?;
         match self {
-            ShaderError::NulError(error) => write!(f, "{}", error),
-            ShaderError::Utf8Error(error) => write!(f, "{}", error),
+            ShaderError::Io(error) => write!(f, "{}", error),
+            ShaderError::Nul(error) => write!(f, "{}", error),
+            ShaderError::Utf8(error) => write!(f, "{}", error),
             ShaderError::ShaderCompilationFailed(message) => {
                 write!(f, "Shader could not compile: {}", message)
             }
@@ -42,8 +50,8 @@ impl Display for ShaderError {
 impl error::Error for ShaderError {
     fn cause(&self) -> Option<&error::Error> {
         match self {
-            ShaderError::NulError(error) => Some(error),
-            ShaderError::Utf8Error(error) => Some(error),
+            ShaderError::Nul(error) => Some(error),
+            ShaderError::Utf8(error) => Some(error),
 
             _ => None,
         }
@@ -168,7 +176,7 @@ impl Program {
 
     ///Returns uniform location in program from uniform name.
     fn get_uniform_location(self, name: &str) -> Result<gl::types::GLint, ShaderError> {
-        let uniform_name = CString::new(name).map_err(ShaderError::NulError)?;
+        let uniform_name = CString::new(name).map_err(ShaderError::Nul)?;
 
         let loc = unsafe { gl::GetUniformLocation(self.id, uniform_name.as_ptr()) };
 
@@ -237,11 +245,11 @@ pub enum ShaderType {
 
 impl Loadable for Shader {
     type LoadOptions = ShaderType;
-    type LoadResult = Result<Self, ShaderError>;
+    type LoadError = ShaderError;
 
-    fn load(data: &[u8], shader_type: ShaderType) -> Result<Self, ShaderError> {
+    fn load_from_bytes(data: &[u8], shader_type: ShaderType) -> Result<Self, ShaderError> {
         Self::from_source(
-            &str::from_utf8(data).map_err(ShaderError::Utf8Error)?,
+            &str::from_utf8(data).map_err(ShaderError::Utf8)?,
             shader_type,
         )
     }
@@ -262,7 +270,7 @@ impl Shader {
     ///Create a new shader from GLSL source (provided as a CString), returns Shader object or OpenGL error log.
     ///shader_type: usually gl::VERTEX_SHADER or gl::FRAGMENT_SHADER
     pub fn from_source(source: &str, shader_type: ShaderType) -> Result<Shader, ShaderError> {
-        let cstring_source = CString::new(source).map_err(ShaderError::NulError)?;
+        let cstring_source = CString::new(source).map_err(ShaderError::Nul)?;
 
         //Create shader and get ID
         let id = unsafe { gl::CreateShader(shader_type as gl::types::GLuint) };

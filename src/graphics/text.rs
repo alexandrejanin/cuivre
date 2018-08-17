@@ -1,25 +1,32 @@
 use gl;
 use graphics::textures::{
-    MaxFilterMode, MinFilterMode, Texture, TextureError, TextureOptions, WrapMode,
+    MaxFilterMode, MinFilterMode, Texture, TextureError, TextureFormat, TextureOptions, WrapMode,
 };
-use maths::Vector4f;
+use maths::{Vector2f, Vector4f};
 use resources::Loadable;
 use rusttype::{
     self,
-    gpu_cache::{CacheBuilder, CacheReadErr, CacheWriteErr},
+    gpu_cache::{Cache, CacheBuilder, CacheReadErr, CacheWriteErr},
     point, PositionedGlyph, Scale,
 };
-use std::{error, fmt, os::raw::c_void};
+use std::{error, fmt, io, os::raw::c_void, sync::Arc};
 
-const CACHE_WIDTH: u32 = 1024;
-const CACHE_HEIGHT: u32 = 1024;
+const CACHE_WIDTH: u32 = 256;
+const CACHE_HEIGHT: u32 = 256;
 
 #[derive(Debug)]
 pub enum FontError {
     CacheRead(CacheReadErr),
     CacheWrite(CacheWriteErr),
+    Io(io::Error),
     Rusttype(rusttype::Error),
     Texture(TextureError),
+}
+
+impl From<io::Error> for FontError {
+    fn from(error: io::Error) -> Self {
+        FontError::Io(error)
+    }
 }
 
 impl fmt::Display for FontError {
@@ -27,6 +34,7 @@ impl fmt::Display for FontError {
         match self {
             FontError::CacheRead(error) => write!(f, "{}", error),
             FontError::CacheWrite(error) => write!(f, "{}", error),
+            FontError::Io(error) => write!(f, "{}", error),
             FontError::Rusttype(error) => write!(f, "{}", error),
             FontError::Texture(error) => write!(f, "{}", error),
         }
@@ -35,45 +43,60 @@ impl fmt::Display for FontError {
 
 impl error::Error for FontError {}
 
-pub struct Font {
-    data: Vec<u8>,
+
+pub struct CharacterPosition {
+    pub texture_position: Vector4f,
+    pub world_position: Vector2f,
+}
+
+
+pub struct Font<'a> {
+    font: rusttype::Font<'a>,
+    cache: Cache<'a>,
     texture: Texture,
 }
 
-impl Loadable for Font {
+impl<'a> Loadable for Font<'a> {
     type LoadOptions = ();
-    type LoadResult = Result<Self, FontError>;
+    type LoadError = FontError;
 
-    fn load(data: &[u8], _options: ()) -> Result<Self, FontError> {
+    fn load_from_bytes(data: &[u8], _options: ()) -> Result<Self, FontError> {
         Self::from_bytes(data)
     }
 }
 
-impl Font {
+impl<'a> Font<'a> {
     fn from_bytes(data: &[u8]) -> Result<Self, FontError> {
         //Cache texture settings
         let options = TextureOptions {
+            format: TextureFormat::Rgba,
             h_wrap_mode: WrapMode::Repeat,
             v_wrap_mode: WrapMode::Repeat,
-            min_filter_mode: MinFilterMode::Linear,
-            max_filter_mode: MaxFilterMode::Linear,
+            min_filter_mode: MinFilterMode::Nearest,
+            max_filter_mode: MaxFilterMode::Nearest,
         };
 
         let texture = Texture::from_bytes(
-            &[0; (4 * CACHE_WIDTH * CACHE_HEIGHT) as usize],
+            &[0xFF; (4 * CACHE_WIDTH * CACHE_HEIGHT) as usize],
             options,
             CACHE_WIDTH,
             CACHE_HEIGHT,
         ).map_err(FontError::Texture)?;
 
+        let arc = Arc::from(data);
+        let cache = CacheBuilder {
+            width: CACHE_WIDTH,
+            height: CACHE_HEIGHT,
+            scale_tolerance: 0.1,
+            position_tolerance: 0.1,
+            pad_glyphs: true,
+        }.build();
+
         Ok(Self {
-            data: Vec::from(data),
+            font: rusttype::Font::from_bytes(arc).map_err(FontError::Rusttype)?,
+            cache,
             texture,
         })
-    }
-
-    pub fn font(&self) -> Result<rusttype::Font, FontError> {
-        rusttype::Font::from_bytes(&self.data).map_err(FontError::Rusttype)
     }
 
     pub fn texture(&self) -> &Texture {
@@ -83,67 +106,73 @@ impl Font {
     /// Returns a sequence of the position of each character in the string on the cache.
     ///
     /// Can fail if the byte data for this font is invalid.
-    pub fn tex_positions(&self, text: &str) -> Result<Vec<Vector4f>, FontError> {
-        let font = self.font()?;
-        let mut cache = CacheBuilder {
-            width: CACHE_WIDTH as u32,
-            height: CACHE_HEIGHT as u32,
-            scale_tolerance: 0.01,
-            position_tolerance: 0.01,
-            pad_glyphs: true,
-        }.build();
+    pub fn get_glyphs(&mut self, text: &str, scale: Vector2f, line_width: u32, (r, g, b): (u8, u8, u8)) -> Result<Vec<CharacterPosition>, FontError> {
+        let glyphs = self.layout_paragraph(text, Scale { x: scale.x, y: scale.y }, line_width);
 
-        let glyphs = Self::layout_paragraph(text, &font, Scale::uniform(10.0), 400);
+        let texture = &self.texture;
+
+        let cache = &mut self.cache;
+
         for glyph in &glyphs {
             cache.queue_glyph(0, glyph.clone());
         }
 
-        //TODO upload glyphs to cache
-        cache
-            .cache_queued(|rect, data| unsafe {
-                gl::TextureSubImage2D(
-                    self.texture.id(),
-                    0,
-                    rect.min.x as i32,
-                    rect.min.y as i32,
-                    rect.width() as i32,
-                    rect.height() as i32,
-                    gl::RGBA,
-                    gl::UNSIGNED_SHORT,
-                    data.as_ptr() as *const c_void,
-                );
-            })
-            .map_err(FontError::CacheWrite)?;
+        cache.cache_queued(|rect, data| unsafe {
+            let mut rgb_data = Vec::with_capacity((4 * rect.width() * rect.height()) as usize);
 
-        let mut vec = Vec::with_capacity(text.len());
+            for pixel in data {
+                rgb_data.push(r);
+                rgb_data.push(g);
+                rgb_data.push(b);
+                rgb_data.push(*pixel);
+            }
+
+
+            gl::TextureSubImage2D(
+                texture.id(),
+                0,
+                rect.min.x as gl::types::GLint,
+                rect.min.y as gl::types::GLint,
+                rect.width() as gl::types::GLint,
+                rect.height() as gl::types::GLint,
+                texture.options().format as gl::types::GLenum,
+                gl::UNSIGNED_BYTE,
+                rgb_data.as_ptr() as *const c_void,
+            );
+        }).map_err(FontError::CacheWrite)?;
 
         //Get texture coordinates as Vector4f for each character
-        for glyph in &glyphs {
-            vec.push(
-                cache
-                    .rect_for(0, glyph)
-                    .map(|coords| match coords {
-                        Some((top_left, _)) => Vector4f::new(
-                            top_left.min.x,
-                            top_left.min.y,
-                            top_left.width(),
-                            top_left.height(),
-                        ),
-                        None => Vector4f::new(0.0, 0.0, 1.0, 1.0),
-                    })
-                    .map_err(FontError::CacheRead)?,
-            );
-        }
+        let vec: Vec<CharacterPosition> = glyphs
+            .iter()
+            .filter_map(|glyph|
+                match cache.rect_for(0, glyph).expect("Could not read cache.") {
+                    Some((tex_pos, world_pos)) =>
+                        Some(CharacterPosition {
+                            texture_position: Vector4f::new(
+                                tex_pos.min.x,
+                                tex_pos.min.y,
+                                tex_pos.width(),
+                                tex_pos.height(),
+                            ),
+                            world_position: Vector2f::new(
+                                world_pos.min.x as f32,
+                                world_pos.min.y as f32
+                            )
+                        }),
+                    None => None
+                }
+            ).collect();
 
         Ok(vec)
     }
 
-    fn layout_paragraph<'a>(
+    fn layout_paragraph(
+        &self,
         text: &str,
-        font: &'a rusttype::Font<'a>,
         scale: Scale,
         width: u32,
     ) -> Vec<PositionedGlyph<'a>> {
+        let font = &self.font;
         use unicode_normalization::UnicodeNormalization;
         let mut result = Vec::new();
         let v_metrics = font.v_metrics(scale);
