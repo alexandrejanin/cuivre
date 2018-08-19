@@ -1,10 +1,10 @@
 use cgmath;
-use maths::{Euler, Matrix4f, Point3f, Quaternion, Vector3f};
+use maths::{Euler, Matrix4f, Quaternion, Vector3f};
 
 ///Represents a transformation in 3D space: translation (position), scale, rotation (Euler's angles).
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Transform {
-    pub position: Point3f,
+    pub position: Vector3f,
     pub scale: Vector3f,
     pub rotation: Vector3f,
 }
@@ -19,14 +19,14 @@ impl Transform {
     ///Create a transform with default position, scale, and rotation.
     pub fn new() -> Self {
         Self {
-            position: Point3f::new(0.0, 0.0, 0.0),
+            position: Vector3f::new(0.0, 0.0, 0.0),
             scale: Vector3f::new(1.0, 1.0, 1.0),
             rotation: Vector3f::new(0.0, 0.0, 0.0),
         }
     }
 
     ///Create a transform with set position, with default scale and rotation.
-    pub fn from_position(position: Point3f) -> Self {
+    pub fn from_position(position: Vector3f) -> Self {
         Self {
             position,
             scale: Vector3f::new(1.0, 1.0, 1.0),
@@ -37,7 +37,7 @@ impl Transform {
     ///Create a transform with set scale, with default position and rotation.
     pub fn from_scale(scale: Vector3f) -> Self {
         Self {
-            position: Point3f::new(0.0, 0.0, 0.0),
+            position: Vector3f::new(0.0, 0.0, 0.0),
             scale,
             rotation: Vector3f::new(0.0, 0.0, 0.0),
         }
@@ -46,7 +46,7 @@ impl Transform {
     ///Create a transform with set rotation, with default position and scale.
     pub fn from_rotation(rotation: Vector3f) -> Self {
         Self {
-            position: Point3f::new(0.0, 0.0, 0.0),
+            position: Vector3f::new(0.0, 0.0, 0.0),
             scale: Vector3f::new(1.0, 1.0, 1.0),
             rotation,
         }

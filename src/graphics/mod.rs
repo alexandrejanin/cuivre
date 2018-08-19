@@ -1,16 +1,16 @@
-use gl;
-use maths::{Vector2f, Vector2u, Vector3f};
-use sdl2;
 use self::{
     batches::{Batch, DrawCall},
     camera::Camera,
     mesh::{Mesh, MeshBuilder, Vertex},
-    shaders::{Shader, ShaderType},
     shaders::Program,
+    shaders::{Shader, ShaderType},
     sprites::Sprite,
-    text::{Font, FontError},
+    text::{Font, FontError, TextSettings},
     textures::Texture,
 };
+use gl;
+use maths::{Vector2f, Vector2u, Vector3f};
+use sdl2;
 use std::{error, fmt, ptr};
 use transform::Transform;
 
@@ -106,8 +106,7 @@ impl GraphicsManager {
                 window_settings.title,
                 window_settings.width,
                 window_settings.height,
-            )
-            .opengl()
+            ).opengl()
             .resizable()
             .build()
             .map_err(DrawingError::WindowBuildError)?;
@@ -212,24 +211,31 @@ impl GraphicsManager {
         self.queue_drawcall(&drawcall);
     }
 
-    /// Draws string.
+    /// Draws a string.
     pub fn draw_text(
         &mut self,
         text: &str,
         font: &mut Font,
+        settings: TextSettings,
         transform: &Transform,
         camera: &Camera,
     ) -> Result<(), FontError> {
-        let mut offset = 0.0;
-
-        for char_position in font.get_glyphs(text, Vector2f::new(20.0, 30.0), 1000, (0xFF, 0x88, 0x00))? {
+        for char_position in font.get_glyphs(text, settings)? {
             let texture = font.texture();
 
-            let mut char_transform = *transform;
-            char_transform.position.x += offset;
-            //char_transform.position.y += char_position.world_position.y;
-
-            offset += 1.0;
+            let char_transform = Transform {
+                position: transform.position + Vector3f::new(
+                    char_position.world_position.x,
+                    char_position.world_position.y,
+                    0.0,
+                ),
+                scale: Vector3f::new(
+                    transform.scale.x * char_position.world_position.z,
+                    transform.scale.y * char_position.world_position.w,
+                    transform.scale.z,
+                ),
+                rotation: transform.rotation,
+            };
 
             let drawcall = DrawCall {
                 program: self.program,

@@ -2,17 +2,19 @@ use gl;
 use graphics::textures::{
     MaxFilterMode, MinFilterMode, Texture, TextureError, TextureFormat, TextureOptions, WrapMode,
 };
-use maths::{Vector2f, Vector4f};
+use maths::Vector4f;
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use resources::Loadable;
 use rusttype::{
     self,
     gpu_cache::{Cache, CacheBuilder, CacheReadErr, CacheWriteErr},
-    point, PositionedGlyph, Scale,
+    Point, PositionedGlyph, Scale,
 };
 use std::{error, fmt, io, os::raw::c_void, sync::Arc};
+use unicode_normalization::UnicodeNormalization;
 
-const CACHE_WIDTH: u32 = 256;
-const CACHE_HEIGHT: u32 = 256;
+const CACHE_WIDTH: u32 = 1024;
+const CACHE_HEIGHT: u32 = 1024;
 
 #[derive(Debug)]
 pub enum FontError {
@@ -43,12 +45,20 @@ impl fmt::Display for FontError {
 
 impl error::Error for FontError {}
 
-
-pub struct CharacterPosition {
-    pub texture_position: Vector4f,
-    pub world_position: Vector2f,
+/// Settings for drawing text.
+#[derive(Debug, Copy, Clone)]
+pub struct TextSettings {
+    pub scale: f32,
+    pub color: (u8, u8, u8),
+    pub line_width: u32,
 }
 
+/// Represents a rendered character's position.
+#[derive(Debug, Copy, Clone)]
+pub struct CharacterPosition {
+    pub texture_position: Vector4f,
+    pub world_position: Vector4f,
+}
 
 pub struct Font<'a> {
     font: rusttype::Font<'a>,
@@ -72,8 +82,8 @@ impl<'a> Font<'a> {
             format: TextureFormat::Rgba,
             h_wrap_mode: WrapMode::Repeat,
             v_wrap_mode: WrapMode::Repeat,
-            min_filter_mode: MinFilterMode::Nearest,
-            max_filter_mode: MaxFilterMode::Nearest,
+            min_filter_mode: MinFilterMode::Linear,
+            max_filter_mode: MaxFilterMode::Linear,
         };
 
         let texture = Texture::from_bytes(
@@ -104,10 +114,17 @@ impl<'a> Font<'a> {
     }
 
     /// Returns a sequence of the position of each character in the string on the cache.
-    ///
-    /// Can fail if the byte data for this font is invalid.
-    pub fn get_glyphs(&mut self, text: &str, scale: Vector2f, line_width: u32, (r, g, b): (u8, u8, u8)) -> Result<Vec<CharacterPosition>, FontError> {
-        let glyphs = self.layout_paragraph(text, Scale { x: scale.x, y: scale.y }, line_width);
+    pub fn get_glyphs(
+        &mut self,
+        text: &str,
+        settings: TextSettings,
+    ) -> Result<Vec<CharacterPosition>, FontError> {
+        let glyphs = Self::layout_paragraph(
+            text,
+            &self.font,
+            Scale::uniform(settings.scale),
+            settings.line_width,
+        );
 
         let texture = &self.texture;
 
@@ -117,92 +134,104 @@ impl<'a> Font<'a> {
             cache.queue_glyph(0, glyph.clone());
         }
 
-        cache.cache_queued(|rect, data| unsafe {
-            let mut rgb_data = Vec::with_capacity((4 * rect.width() * rect.height()) as usize);
+        cache
+            .cache_queued(|rect, data| unsafe {
+                let mut rgb_data: Vec<u8> =
+                    Vec::with_capacity((4 * rect.width() * rect.height()) as usize);
 
-            for pixel in data {
-                rgb_data.push(r);
-                rgb_data.push(g);
-                rgb_data.push(b);
-                rgb_data.push(*pixel);
-            }
+                for alpha in data {
+                    rgb_data.push(settings.color.0);
+                    rgb_data.push(settings.color.1);
+                    rgb_data.push(settings.color.2);
+                    rgb_data.push(*alpha);
+                }
 
-
-            gl::TextureSubImage2D(
-                texture.id(),
-                0,
-                rect.min.x as gl::types::GLint,
-                rect.min.y as gl::types::GLint,
-                rect.width() as gl::types::GLint,
-                rect.height() as gl::types::GLint,
-                texture.options().format as gl::types::GLenum,
-                gl::UNSIGNED_BYTE,
-                rgb_data.as_ptr() as *const c_void,
-            );
-        }).map_err(FontError::CacheWrite)?;
+                gl::TextureSubImage2D(
+                    texture.id(),
+                    0,
+                    rect.min.x as gl::types::GLint,
+                    rect.min.y as gl::types::GLint,
+                    rect.width() as gl::types::GLint,
+                    rect.height() as gl::types::GLint,
+                    texture.options().format as gl::types::GLenum,
+                    gl::UNSIGNED_BYTE,
+                    rgb_data.as_ptr() as *const c_void,
+                );
+            }).map_err(FontError::CacheWrite)?;
 
         //Get texture coordinates as Vector4f for each character
-        let vec: Vec<CharacterPosition> = glyphs
-            .iter()
-            .filter_map(|glyph|
-                match cache.rect_for(0, glyph).expect("Could not read cache.") {
-                    Some((tex_pos, world_pos)) =>
-                        Some(CharacterPosition {
-                            texture_position: Vector4f::new(
-                                tex_pos.min.x,
-                                tex_pos.min.y,
-                                tex_pos.width(),
-                                tex_pos.height(),
-                            ),
-                            world_position: Vector2f::new(
-                                world_pos.min.x as f32,
-                                world_pos.min.y as f32
-                            )
-                        }),
-                    None => None
-                }
+        let vec = glyphs
+            .par_iter()
+            .filter_map(
+                |glyph| match cache.rect_for(0, glyph).expect("Could not read cache.") {
+                    Some((tex_pos, world_pos)) => Some(CharacterPosition {
+                        texture_position: Vector4f::new(
+                            tex_pos.min.x,
+                            tex_pos.min.y,
+                            tex_pos.width(),
+                            tex_pos.height(),
+                        ),
+                        world_position: Vector4f::new(
+                            world_pos.min.x as f32 + (world_pos.width() as f32) / 2.0,
+                            -(world_pos.min.y as f32 + (world_pos.height() as f32) / 2.0),
+                            world_pos.width() as f32,
+                            world_pos.height() as f32,
+                        ) / 100.0,
+                    }),
+                    None => None,
+                },
             ).collect();
 
         Ok(vec)
     }
 
-    fn layout_paragraph(
-        &self,
+    fn layout_paragraph<'b>(
         text: &str,
+        font: &rusttype::Font<'b>,
         scale: Scale,
         width: u32,
-    ) -> Vec<PositionedGlyph<'a>> {
-        let font = &self.font;
-        use unicode_normalization::UnicodeNormalization;
+    ) -> Vec<PositionedGlyph<'b>> {
         let mut result = Vec::new();
+
         let v_metrics = font.v_metrics(scale);
+
         let advance_height = v_metrics.ascent - v_metrics.descent + v_metrics.line_gap;
-        let mut caret = point(0.0, v_metrics.ascent);
+        let mut caret = Point {
+            x: 0.0,
+            y: v_metrics.ascent,
+        };
         let mut last_glyph_id = None;
+
         for c in text.nfc() {
+            //Special behavior for some characters
             if c.is_control() {
-                match c {
-                    '\r' => {
-                        caret = point(0.0, caret.y + advance_height);
-                    }
-                    '\n' => {}
-                    _ => {}
+                if let '\n' = c {
+                    caret.x = 0.0;
+                    caret.y += advance_height;
                 }
                 continue;
             }
+
             let base_glyph = font.glyph(c);
             if let Some(id) = last_glyph_id.take() {
                 caret.x += font.pair_kerning(scale, id, base_glyph.id());
             }
+
             last_glyph_id = Some(base_glyph.id());
             let mut glyph = base_glyph.scaled(scale).positioned(caret);
+
+            //Wrap lines
             if let Some(bb) = glyph.pixel_bounding_box() {
                 if bb.max.x > width as i32 {
-                    caret = point(0.0, caret.y + advance_height);
+                    caret.x = 0.0;
+                    caret.y += advance_height;
+
                     glyph = glyph.into_unpositioned().positioned(caret);
                     last_glyph_id = None;
                 }
             }
+
+            //Advance caret and push glyph
             caret.x += glyph.unpositioned().h_metrics().advance_width;
             result.push(glyph);
         }

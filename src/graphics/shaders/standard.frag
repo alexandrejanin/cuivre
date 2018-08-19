@@ -11,7 +11,7 @@ out vec4 Color;
 void main() {
     vec4 color =  texture(Tex, SourcePosition + SourceSize * UVCoord);
 
-    if (color.a <= 0.01) {
+    if (color.a <= 1.0/255) {
         discard;
     } else {
         Color = color;

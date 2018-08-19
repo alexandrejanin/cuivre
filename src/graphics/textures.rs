@@ -204,7 +204,12 @@ impl Texture {
         height: u32,
     ) -> Result<Self, TextureError> {
         if data.len() != (options.format.pixel_length() * width * height) as usize {
-            return Err(TextureError::InvalidTextureData(options.format.pixel_length(), width, height, data.len()));
+            return Err(TextureError::InvalidTextureData(
+                options.format.pixel_length(),
+                width,
+                height,
+                data.len(),
+            ));
         }
 
         //Allocate texture

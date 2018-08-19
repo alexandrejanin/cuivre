@@ -1,11 +1,11 @@
-use gl;
-use maths::{Matrix4f, Vector4f};
-use std::mem;
 use super::{
-    mesh::{BATCH_INSTANCE_SIZE, MAX_BATCH_SIZE, Mesh},
+    mesh::{Mesh, BATCH_INSTANCE_SIZE, MAX_BATCH_SIZE},
     shaders::Program,
     textures::{Texture, TextureID},
 };
+use gl;
+use maths::{Matrix4f, Vector4f};
+use std::mem;
 
 #[derive(Debug)]
 pub struct DrawCall<'t> {
@@ -69,9 +69,9 @@ impl Batch {
         if drawcall.program != self.program
             || drawcall.mesh != self.mesh
             || drawcall.texture.id() != self.texture
-            {
-                return false;
-            }
+        {
+            return false;
+        }
 
         //Check if batch is full
         if self.obj_count >= MAX_BATCH_SIZE {
@@ -100,7 +100,8 @@ impl Batch {
             gl::BindBuffer(gl::ARRAY_BUFFER, self.mesh.batch_vbo());
             gl::BufferData(
                 gl::ARRAY_BUFFER,
-                (mem::size_of::<f32>() * self.obj_count * BATCH_INSTANCE_SIZE) as gl::types::GLsizeiptr,
+                (mem::size_of::<f32>() * self.obj_count * BATCH_INSTANCE_SIZE)
+                    as gl::types::GLsizeiptr,
                 self.buffer.as_ptr() as *const gl::types::GLvoid,
                 gl::STREAM_DRAW,
             );

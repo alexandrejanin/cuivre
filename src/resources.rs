@@ -6,8 +6,8 @@ lazy_static! {
 
 /// Represents a type that can be loaded from a file or byte sequence.
 pub trait Loadable
-    where
-        Self: Sized,
+where
+    Self: Sized,
 {
     /// Type of an additional argument that can be supplied to the `load` methods.
     ///

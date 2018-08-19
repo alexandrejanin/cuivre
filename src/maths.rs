@@ -1,15 +1,5 @@
 use cgmath;
 
-//Point types
-pub type Point2f = cgmath::Point2<f32>;
-pub type Point3f = cgmath::Point3<f32>;
-
-pub type Point2i = cgmath::Point2<i32>;
-pub type Point3i = cgmath::Point3<i32>;
-
-pub type Point2u = cgmath::Point2<u32>;
-pub type Point3u = cgmath::Point3<u32>;
-
 //Vector types
 
 pub type Vector2f = cgmath::Vector2<f32>;

@@ -2,13 +2,12 @@
 extern crate cgmath;
 extern crate gl;
 extern crate image;
+extern crate rayon;
 #[macro_use]
 extern crate lazy_static;
 extern crate rusttype;
 extern crate sdl2;
 extern crate unicode_normalization;
-
-pub use sdl2::event::{Event, WindowEvent};
 
 pub mod graphics;
 pub mod input;

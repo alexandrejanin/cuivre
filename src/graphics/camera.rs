@@ -1,5 +1,5 @@
-use cgmath::{self, Ortho, PerspectiveFov};
-use maths::{Matrix4f, Point3f, Vector2f, Vector2u, Vector3f};
+use cgmath::{self, Ortho, PerspectiveFov, Point3};
+use maths::{Matrix4f, Vector2f, Vector2u, Vector3f};
 
 /// Different ways to calculate camera width and height from `size`.
 pub enum CameraScaleMode {
@@ -18,7 +18,7 @@ pub enum CameraScaleMode {
 /// Required for drawing sprites/meshes.
 pub struct Camera {
     /// Position of the camera in world space.
-    pub position: Point3f,
+    pub position: Vector3f,
     /// Direction the camera is looking towards.
     pub direction: Vector3f,
     /// Near plane distance.
@@ -42,7 +42,7 @@ impl Camera {
     ///
     /// Same as struct initialization.
     pub fn new(
-        position: Point3f,
+        position: Vector3f,
         direction: Vector3f,
         near: f32,
         far: f32,
@@ -62,7 +62,7 @@ impl Camera {
     }
 
     /// Make camera look at a point from its current position.
-    pub fn look_at(&mut self, target: Point3f) {
+    pub fn look_at(&mut self, target: Vector3f) {
         self.direction = target - self.position;
     }
 
@@ -113,6 +113,7 @@ impl Camera {
 
     /// View matrix.
     pub fn view_matrix(&self) -> Matrix4f {
-        Matrix4f::look_at_dir(self.position, self.direction, Vector3f::new(0.0, 1.0, 0.0))
+        let pos = Point3::new(self.position.x, self.position.y, self.position.z);
+        Matrix4f::look_at_dir(pos, self.direction, Vector3f::new(0.0, 1.0, 0.0))
     }
 }

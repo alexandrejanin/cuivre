@@ -1,6 +1,10 @@
 use maths::Vector2i;
 use sdl2;
-pub use sdl2::{keyboard::Keycode, mouse::MouseButton};
+pub use sdl2::{
+    event::{Event, WindowEvent},
+    keyboard::Keycode,
+    mouse::MouseButton,
+};
 use std::{collections::HashMap, error, fmt};
 
 /// Errors related to input management.
@@ -32,6 +36,12 @@ pub struct KeyState {
 }
 
 impl KeyState {
+    /// Update the keystate with a new state.
+    fn update(&mut self, down: bool) {
+        self.changed = down != self.down;
+        self.down = down;
+    }
+
     /// Is the key currently held down?
     pub fn down(&self) -> bool {
         self.down
@@ -51,12 +61,6 @@ impl KeyState {
     pub fn released(&self) -> bool {
         !self.down && self.changed
     }
-
-    /// Update the keystate with a new state.
-    fn update(&mut self, pressed: bool) {
-        self.changed = pressed != self.down;
-        self.down = pressed;
-    }
 }
 
 /// Retrieves and manages input from events.
@@ -68,6 +72,8 @@ pub struct InputManager {
     //Mouse state
     mouse_state: HashMap<MouseButton, KeyState>,
     mouse_position: Vector2i,
+    mouse_position_relative: Vector2i,
+    mouse_wheel: i32,
 }
 
 impl Default for InputManager {
@@ -84,47 +90,79 @@ impl InputManager {
             keybinds: HashMap::new(),
             mouse_state: HashMap::new(),
             mouse_position: Vector2i::new(0, 0),
+            mouse_position_relative: Vector2i::new(0, 0),
+            mouse_wheel: 0,
         }
     }
 
     /// Updates InputManager with new events from an event pump.
     ///
-    /// This should be called every frame for the `InputManager`
-    /// to work properly.
-    pub fn update(&mut self, events: &sdl2::EventPump) {
-        //Update keyboard state
-        let new_key_state = events.keyboard_state();
-        let key_states = new_key_state.scancodes().filter_map(|(scancode, pressed)| {
-            if let Some(keycode) = Keycode::from_scancode(scancode) {
-                Some((keycode, pressed))
-            } else {
-                None
+    /// This should be called at the start of your game loop.
+    ///
+    /// Returns events that aren't handled by the `InputManager`.
+    pub fn update(&mut self, mut events: sdl2::EventPump) -> Vec<Event> {
+        self.mouse_wheel = 0;
+        self.mouse_position_relative = Vector2i::new(0, 0);
+
+        for keystate in self.key_state.values_mut() {
+            let down = keystate.down;
+            keystate.update(down)
+        }
+
+        // List of events that aren't handled and will be returned
+        let mut passthrough_events = Vec::new();
+
+        for event in events.poll_iter() {
+            match event {
+                Event::KeyDown { keycode, .. } => if let Some(keycode) = keycode {
+                    self.key_state
+                        .entry(keycode)
+                        .or_insert(KeyState {
+                            down: false,
+                            changed: false,
+                        }).update(true)
+                },
+
+                Event::KeyUp { keycode, .. } => if let Some(keycode) = keycode {
+                    self.key_state
+                        .entry(keycode)
+                        .or_insert(KeyState {
+                            down: true,
+                            changed: false,
+                        }).update(false)
+                },
+
+                Event::MouseButtonDown { mouse_btn, .. } => self
+                    .mouse_state
+                    .entry(mouse_btn)
+                    .or_insert(KeyState {
+                        down: false,
+                        changed: false,
+                    }).update(true),
+
+                Event::MouseButtonUp { mouse_btn, .. } => self
+                    .mouse_state
+                    .entry(mouse_btn)
+                    .or_insert(KeyState {
+                        down: true,
+                        changed: false,
+                    }).update(true),
+
+                Event::MouseWheel { y, .. } => self.mouse_wheel = y,
+
+                Event::MouseMotion {
+                    x, y, xrel, yrel, ..
+                } => {
+                    self.mouse_position = Vector2i::new(x, y);
+                    self.mouse_position_relative = Vector2i::new(xrel, yrel);
+                }
+
+                // Other events are ignored
+                _ => passthrough_events.push(event),
             }
-        });
-
-        for (keycode, pressed) in key_states {
-            self.key_state
-                .entry(keycode)
-                .or_insert(KeyState {
-                    down: pressed,
-                    changed: false,
-                })
-                .update(pressed);
         }
 
-        //Update mouse
-        let mouse_state = events.mouse_state();
-        self.mouse_position = Vector2i::new(mouse_state.x(), mouse_state.y());
-
-        for (button, pressed) in mouse_state.mouse_buttons() {
-            self.mouse_state
-                .entry(button)
-                .or_insert(KeyState {
-                    down: pressed,
-                    changed: false,
-                })
-                .update(pressed);
-        }
+        passthrough_events
     }
 
     /// Gets the current state of a keyboard key.
@@ -139,10 +177,14 @@ impl InputManager {
     ///     println!("Space pressed!");
     /// }
     /// ```
-    pub fn key(&self, keycode: Keycode) -> Result<&KeyState, InputError> {
-        self.key_state
-            .get(&keycode)
-            .ok_or_else(|| InputError::KeycodeNotFound(keycode))
+    pub fn key(&self, keycode: Keycode) -> &KeyState {
+        match self.key_state.get(&keycode) {
+            Some(keystate) => &keystate,
+            None => &KeyState {
+                down: false,
+                changed: false,
+            },
+        }
     }
 
     /// Gets the current state of a custom keybind.
@@ -161,8 +203,8 @@ impl InputManager {
     /// ```
     pub fn keybind(&self, name: &str) -> Result<&KeyState, InputError> {
         match self.keybinds.get(name) {
+            Some(&keycode) => Ok(self.key(keycode)),
             None => Err(InputError::KeybindNotFound(name.to_owned())),
-            Some(&keycode) => self.key(keycode),
         }
     }
 
@@ -210,5 +252,18 @@ impl InputManager {
     /// relative to the top left corner of the window.
     pub fn mouse_position(&self) -> Vector2i {
         self.mouse_position
+    }
+
+    /// Gets the current mouse position in pixels,
+    /// relative to last frame's mouse position.
+    pub fn mouse_position_relative(&self) -> Vector2i {
+        self.mouse_position_relative
+    }
+
+    /// Gets the current state of the mouse wheel.
+    /// < 0: scrolling down
+    /// > 0: scrolling up
+    pub fn mouse_wheel(&self) -> i32 {
+        self.mouse_wheel
     }
 }
