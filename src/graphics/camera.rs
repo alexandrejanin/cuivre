@@ -79,17 +79,21 @@ impl Camera {
             CameraScaleMode::Width => Vector2f::new(self.size, self.size / ratio),
             CameraScaleMode::Height => Vector2f::new(self.size * ratio, self.size),
 
-            CameraScaleMode::Min => if ratio < 1.0 {
-                Vector2f::new(self.size, self.size / ratio)
-            } else {
-                Vector2f::new(self.size * ratio, self.size)
-            },
+            CameraScaleMode::Min => {
+                if ratio < 1.0 {
+                    Vector2f::new(self.size, self.size / ratio)
+                } else {
+                    Vector2f::new(self.size * ratio, self.size)
+                }
+            }
 
-            CameraScaleMode::Max => if ratio > 1.0 {
-                Vector2f::new(self.size, self.size / ratio)
-            } else {
-                Vector2f::new(self.size * ratio, self.size)
-            },
+            CameraScaleMode::Max => {
+                if ratio > 1.0 {
+                    Vector2f::new(self.size, self.size / ratio)
+                } else {
+                    Vector2f::new(self.size * ratio, self.size)
+                }
+            }
         };
 
         if self.perspective {
@@ -98,7 +102,8 @@ impl Camera {
                 near: self.near,
                 far: self.far,
                 aspect: size.x / size.y,
-            }.into()
+            }
+            .into()
         } else {
             Ortho {
                 left: -size.x / 2.0,
@@ -107,7 +112,8 @@ impl Camera {
                 top: size.y / 2.0,
                 near: self.near,
                 far: self.far,
-            }.into()
+            }
+            .into()
         }
     }
 

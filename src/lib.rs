@@ -1,5 +1,7 @@
 // Load extern crates
 extern crate cgmath;
+#[macro_use]
+extern crate failure;
 extern crate gl;
 extern crate image;
 extern crate rayon;
@@ -9,10 +11,10 @@ extern crate rusttype;
 extern crate sdl2;
 extern crate unicode_normalization;
 
+pub mod assets;
 pub mod graphics;
 pub mod input;
 pub mod maths;
-pub mod resources;
 pub mod transform;
 
 /// Initializes and returns an Sdl object, required to initialize some components such as GraphicsManager.

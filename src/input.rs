@@ -114,23 +114,29 @@ impl InputManager {
 
         for event in events.poll_iter() {
             match event {
-                Event::KeyDown { keycode, .. } => if let Some(keycode) = keycode {
-                    self.key_state
-                        .entry(keycode)
-                        .or_insert(KeyState {
-                            down: false,
-                            changed: false,
-                        }).update(true)
-                },
+                Event::KeyDown { keycode, .. } => {
+                    if let Some(keycode) = keycode {
+                        self.key_state
+                            .entry(keycode)
+                            .or_insert(KeyState {
+                                down: false,
+                                changed: false,
+                            })
+                            .update(true)
+                    }
+                }
 
-                Event::KeyUp { keycode, .. } => if let Some(keycode) = keycode {
-                    self.key_state
-                        .entry(keycode)
-                        .or_insert(KeyState {
-                            down: true,
-                            changed: false,
-                        }).update(false)
-                },
+                Event::KeyUp { keycode, .. } => {
+                    if let Some(keycode) = keycode {
+                        self.key_state
+                            .entry(keycode)
+                            .or_insert(KeyState {
+                                down: true,
+                                changed: false,
+                            })
+                            .update(false)
+                    }
+                }
 
                 Event::MouseButtonDown { mouse_btn, .. } => self
                     .mouse_state
@@ -138,7 +144,8 @@ impl InputManager {
                     .or_insert(KeyState {
                         down: false,
                         changed: false,
-                    }).update(true),
+                    })
+                    .update(true),
 
                 Event::MouseButtonUp { mouse_btn, .. } => self
                     .mouse_state
@@ -146,7 +153,8 @@ impl InputManager {
                     .or_insert(KeyState {
                         down: true,
                         changed: false,
-                    }).update(true),
+                    })
+                    .update(true),
 
                 Event::MouseWheel { y, .. } => self.mouse_wheel = y,
 

@@ -1,44 +1,26 @@
+use assets::Asset;
+use failure::Error;
 use gl;
 use image;
 use maths::Vector2u;
-use resources::Loadable;
-use std::{cmp::Ordering, error, fmt, io};
+use std::cmp::Ordering;
 
 /// ID of loaded OpenGL Texture
 pub type TextureID = gl::types::GLuint;
 
 /// Errors related to texture handling.
-#[derive(Debug)]
+#[derive(Debug, Fail)]
 pub enum TextureError {
-    Io(io::Error),
-    /// Error related to image handling.
-    ImageError(image::ImageError),
     /// Tried creating texture from invalid data.
     /// Contains texture width, height, and data length.
+    #[fail(
+        display = "Invalid texture data: {}x{}x{} != {}",
+        _0,
+        _1,
+        _2,
+        _3
+    )]
     InvalidTextureData(u32, u32, u32, usize),
-}
-
-impl From<io::Error> for TextureError {
-    fn from(error: io::Error) -> Self {
-        TextureError::Io(error)
-    }
-}
-
-impl error::Error for TextureError {}
-
-impl fmt::Display for TextureError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            TextureError::Io(error) => write!(f, "{}", error),
-            TextureError::ImageError(error) => write!(f, "{}", error),
-            TextureError::InvalidTextureData(pixel_size, width, height, len) => write!(
-                f,
-                //TODO: nicer message
-                "TextureError: {}x{}x{} != {}",
-                pixel_size, width, height, len
-            ),
-        }
-    }
 }
 
 /// Texture format.
@@ -129,15 +111,10 @@ pub struct Texture {
     options: TextureOptions,
 }
 
-impl Loadable for Texture {
-    type LoadOptions = TextureOptions;
-    type LoadError = TextureError;
-
-    fn load_from_bytes(data: &[u8], options: TextureOptions) -> Result<Self, TextureError> {
+impl Asset<TextureOptions> for Texture {
+    fn load_from_bytes(data: &[u8], options: TextureOptions) -> Result<Self, Error> {
         //Load image from bytes
-        let img = image::load_from_memory(data)
-            .map_err(TextureError::ImageError)?
-            .to_rgba();
+        let img = image::load_from_memory(data)?.to_rgba();
         let (width, height) = img.dimensions();
 
         Self::from_bytes(img.as_ref(), options, width, height)
@@ -202,14 +179,15 @@ impl Texture {
         options: TextureOptions,
         width: u32,
         height: u32,
-    ) -> Result<Self, TextureError> {
+    ) -> Result<Self, Error> {
         if data.len() != (options.format.pixel_length() * width * height) as usize {
             return Err(TextureError::InvalidTextureData(
                 options.format.pixel_length(),
                 width,
                 height,
                 data.len(),
-            ));
+            )
+            .into());
         }
 
         //Allocate texture
@@ -259,14 +237,8 @@ impl Texture {
                 options.max_filter_mode as gl::types::GLint,
             );
 
-            //Generate mipmaps if min_filter_mode requires it
-            match options.min_filter_mode {
-                MinFilterMode::NearestMipmapNearest
-                | MinFilterMode::LinearMipmapNearest
-                | MinFilterMode::NearestMipmapLinear
-                | MinFilterMode::LinearMipmapLinear => gl::GenerateMipmap(gl::TEXTURE_2D),
-                MinFilterMode::Nearest | MinFilterMode::Linear => {}
-            }
+            //Generate mipmaps
+            gl::GenerateMipmap(gl::TEXTURE_2D);
 
             //Unbind texture
             gl::BindTexture(gl::TEXTURE_2D, 0);

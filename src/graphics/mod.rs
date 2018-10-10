@@ -5,13 +5,14 @@ use self::{
     shaders::Program,
     shaders::{Shader, ShaderType},
     sprites::Sprite,
-    text::{Font, FontError, TextSettings},
+    text::{Font, TextSettings},
     textures::Texture,
 };
+use failure::Error;
 use gl;
 use maths::{Vector2f, Vector2u, Vector3f};
 use sdl2;
-use std::{error, fmt, ptr};
+use std::ptr;
 use transform::Transform;
 
 mod batches;
@@ -23,44 +24,14 @@ pub mod text;
 pub mod textures;
 
 /// Error related to OpenGL drawing.
-#[derive(Debug)]
-pub enum DrawingError {
+#[derive(Debug, Fail)]
+pub enum GraphicsError {
     /// Error related to SDL.
+    #[fail(display = "SDL Error: {}", _0)]
     SdlError(String),
     /// Error related to OpenGL.
+    #[fail(display = "OpenGL Error: {}", _0)]
     GlError(String),
-    /// Tried drawing a mesh that had no EBO set.
-    MeshEBONotInitialized,
-    /// Tried drawing a mesh that had no VAO set.
-    MeshVAONotInitialized,
-    /// Error related to OpenGL shaders.
-    ShaderError(shaders::ShaderError),
-    /// Error related to window building.
-    WindowBuildError(sdl2::video::WindowBuildError),
-}
-
-impl fmt::Display for DrawingError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            DrawingError::SdlError(string) => write!(f, "{}", string),
-            DrawingError::GlError(string) => write!(f, "{}", string),
-            DrawingError::ShaderError(error) => write!(f, "{}", error),
-            DrawingError::WindowBuildError(error) => write!(f, "{}", error),
-            DrawingError::MeshEBONotInitialized => write!(f, "Mesh EBO not initialized"),
-            DrawingError::MeshVAONotInitialized => write!(f, "Mesh VAO not initialized"),
-        }
-    }
-}
-
-impl error::Error for DrawingError {
-    fn cause(&self) -> Option<&error::Error> {
-        match self {
-            DrawingError::ShaderError(error) => Some(error),
-            DrawingError::WindowBuildError(error) => Some(error),
-
-            _ => None,
-        }
-    }
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -89,9 +60,9 @@ pub struct GraphicsManager {
 
 impl GraphicsManager {
     /// Initializes graphics from SDL object, resource loader, default shader paths and window settings
-    pub fn new(sdl: &sdl2::Sdl, window_settings: WindowSettings) -> Result<Self, DrawingError> {
+    pub fn new(sdl: &sdl2::Sdl, window_settings: WindowSettings) -> Result<Self, Error> {
         //Initialize VideoSubsystem
-        let video = sdl.video().map_err(DrawingError::SdlError)?;
+        let video = sdl.video().map_err(GraphicsError::SdlError)?;
 
         //Set OpenGL parameters
         {
@@ -106,13 +77,13 @@ impl GraphicsManager {
                 window_settings.title,
                 window_settings.width,
                 window_settings.height,
-            ).opengl()
+            )
+            .opengl()
             .resizable()
-            .build()
-            .map_err(DrawingError::WindowBuildError)?;
+            .build()?;
 
         //Initialize OpenGL
-        let gl_context = window.gl_create_context().map_err(DrawingError::GlError)?;
+        let gl_context = window.gl_create_context().map_err(GraphicsError::GlError)?;
         gl::load_with(|s| video.gl_get_proc_address(s) as *const gl::types::GLvoid);
 
         //Enable/disable vsync
@@ -137,13 +108,10 @@ impl GraphicsManager {
 
         //Load shaders
         let vertex_shader =
-            Shader::from_source(include_str!("shaders/standard.vert"), ShaderType::Vertex)
-                .map_err(DrawingError::ShaderError)?;
+            Shader::from_source(include_str!("shaders/standard.vert"), ShaderType::Vertex)?;
         let fragment_shader =
-            Shader::from_source(include_str!("shaders/standard.frag"), ShaderType::Fragment)
-                .map_err(DrawingError::ShaderError)?;
-        let program = Program::from_shaders(vertex_shader, fragment_shader)
-            .map_err(DrawingError::ShaderError)?;
+            Shader::from_source(include_str!("shaders/standard.frag"), ShaderType::Fragment)?;
+        let program = Program::from_shaders(vertex_shader, fragment_shader)?;
 
         //Build quad mesh
         let quad = MeshBuilder {
@@ -166,7 +134,8 @@ impl GraphicsManager {
                 },
             ],
             indices: vec![0, 1, 2, 0, 2, 3],
-        }.build();
+        }
+        .build();
 
         //Build and return graphics manager
         Ok(Self {
@@ -219,7 +188,7 @@ impl GraphicsManager {
         settings: TextSettings,
         transform: &Transform,
         camera: &Camera,
-    ) -> Result<(), FontError> {
+    ) -> Result<(), Error> {
         for char_position in font.get_glyphs(text, settings)? {
             let texture = font.texture();
 
@@ -267,7 +236,7 @@ impl GraphicsManager {
     }
 
     /// Renders the current queued batches.
-    pub fn render(&mut self) -> Result<(), DrawingError> {
+    pub fn render(&mut self) -> Result<(), Error> {
         //Clear render target
         unsafe {
             gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
@@ -290,7 +259,7 @@ impl GraphicsManager {
     }
 
     /// Draw a batch.
-    fn draw(&self, batch: &Batch) -> Result<(), DrawingError> {
+    fn draw(&self, batch: &Batch) -> Result<(), Error> {
         //Check that mesh is valid
         batch.mesh().check()?;
 

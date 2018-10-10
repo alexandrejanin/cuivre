@@ -1,4 +1,3 @@
-use super::DrawingError;
 use gl;
 use maths::{Vector2f, Vector3f};
 use std::{cmp, mem, ptr};
@@ -8,6 +7,16 @@ pub const MAX_BATCH_SIZE: usize = 1000;
 
 //Size of 1 object in the VBO, in floats. 16: matrix, 4: tex coordinates
 pub const BATCH_INSTANCE_SIZE: usize = 20;
+
+#[derive(Debug, Fail)]
+pub enum MeshError {
+    /// Tried drawing a mesh that had no EBO set.
+    #[fail(display = "Mesh EBO not initialized")]
+    MeshEBONotInitialized,
+    /// Tried drawing a mesh that had no VAO set.
+    #[fail(display = "Mesh VAO not initialized")]
+    MeshVAONotInitialized,
+}
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
@@ -74,12 +83,12 @@ impl Mesh {
         self.indices_count
     }
 
-    pub fn check(&self) -> Result<(), DrawingError> {
+    pub fn check(&self) -> Result<(), MeshError> {
         if self.ebo == 0 {
-            return Err(DrawingError::MeshEBONotInitialized);
+            return Err(MeshError::MeshEBONotInitialized);
         }
         if self.vao == 0 {
-            return Err(DrawingError::MeshVAONotInitialized);
+            return Err(MeshError::MeshVAONotInitialized);
         }
 
         Ok(())

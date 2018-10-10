@@ -1,64 +1,25 @@
+use assets::Asset;
 use cgmath::{Array, Matrix};
+use failure::Error;
 use gl;
-use maths::{Matrix4f, Vector2f, Vector4f};
-use resources::Loadable;
-use std::{
-    error,
-    ffi::{self, CString},
-    fmt::{self, Display, Formatter},
-    io, ptr, str,
-};
+use maths::{Matrix4f, Vector2f, Vector3f, Vector4f};
+use std::{ffi::CString, ptr, str};
 
 ///Errors related to shaders.
-#[derive(Debug)]
+#[derive(Debug, Fail)]
 pub enum ShaderError {
-    Io(io::Error),
-    Nul(ffi::NulError),
-    Utf8(str::Utf8Error),
     ///OpenGL Shader could not compile. Contains OpenGL Error log.
+    #[fail(display = "Shader compilation failed: {}", _0)]
     ShaderCompilationFailed(String),
     ///OpenGL Program could not link. Contains OpenGL Error log.
+    #[fail(display = "Program linking failed: {}", _0)]
     ProgramLinkingFailed(String),
     ///Uniform was not found in the current program. Contains uniform name.
-    InvalidUniform(String),
+    #[fail(display = "Uniform not found: {}", _0)]
+    UniformNotFound(String),
 }
 
-impl From<io::Error> for ShaderError {
-    fn from(error: io::Error) -> Self {
-        ShaderError::Io(error)
-    }
-}
-
-impl Display for ShaderError {
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        write!(f, "Shader error: ")?;
-        match self {
-            ShaderError::Io(error) => write!(f, "{}", error),
-            ShaderError::Nul(error) => write!(f, "{}", error),
-            ShaderError::Utf8(error) => write!(f, "{}", error),
-            ShaderError::ShaderCompilationFailed(message) => {
-                write!(f, "Shader could not compile: {}", message)
-            }
-            ShaderError::ProgramLinkingFailed(message) => {
-                write!(f, "Program could not link: {}", message)
-            }
-            ShaderError::InvalidUniform(uniform) => write!(f, "Invalid uniform: {}", uniform),
-        }
-    }
-}
-
-impl error::Error for ShaderError {
-    fn cause(&self) -> Option<&error::Error> {
-        match self {
-            ShaderError::Nul(error) => Some(error),
-            ShaderError::Utf8(error) => Some(error),
-
-            _ => None,
-        }
-    }
-}
-
-///ID of loaded OpenGL Program
+/// ID of loaded OpenGL Program
 pub type ProgramID = gl::types::GLuint;
 
 /// Represents an OpenGL shader program.
@@ -69,129 +30,140 @@ pub struct Program {
 }
 
 impl Program {
-    ///Get the underlying program ID.
+    /// Get the underlying program ID.
     pub fn id(self) -> ProgramID {
         self.id
     }
 
-    ///Use this program for drawing.
+    /// Use this program for drawing.
     pub fn set_used(self) {
         unsafe {
             gl::UseProgram(self.id());
         }
     }
 
-    ///Set a uniform mat4.
-    pub fn set_mat4(self, name: &str, mat4: Matrix4f) -> Result<(), ShaderError> {
-        let loc = self.get_uniform_location(name)?;
-
-        unsafe {
-            gl::UniformMatrix4fv(loc, 1, gl::FALSE, mat4.as_ptr());
-        }
-
-        Ok(())
-    }
-
-    ///Set a uniform mat4 array.
-    pub fn set_mat4_arr(self, name: &str, mat4s: &[Matrix4f]) -> Result<(), ShaderError> {
-        let loc = self.get_uniform_location(name)?;
-
-        unsafe {
-            gl::UniformMatrix4fv(
-                loc,
-                mat4s.len() as gl::types::GLint,
-                gl::FALSE,
-                mat4s[0].as_ptr(),
-            );
-        }
-
-        Ok(())
-    }
-
-    ///Set a uniform vec2.
-    pub fn set_vec2(self, name: &str, vec2: Vector2f) -> Result<(), ShaderError> {
-        let loc = self.get_uniform_location(name)?;
-
-        unsafe {
-            gl::Uniform2fv(loc, 1 as gl::types::GLint, vec2.as_ptr());
-        }
-
-        Ok(())
-    }
-
-    ///Set a uniform vec2 array.
-    pub fn set_vec2_arr(self, name: &str, vec2s: &[Vector2f]) -> Result<(), ShaderError> {
-        let loc = self.get_uniform_location(name)?;
-
-        unsafe {
-            gl::Uniform2fv(loc, vec2s.len() as gl::types::GLint, vec2s[0].as_ptr());
-        }
-
-        Ok(())
-    }
-
-    ///Set a uniform vec3.
-    pub fn set_vec3(self, name: &str, vec3: Vector4f) -> Result<(), ShaderError> {
-        let loc = self.get_uniform_location(name)?;
-
-        unsafe {
-            gl::Uniform3fv(loc, 1 as gl::types::GLint, vec3.as_ptr());
-        }
-
-        Ok(())
-    }
-
-    ///Set a uniform vec3 array.
-    pub fn set_vec3_arr(self, name: &str, vec3s: &[Vector4f]) -> Result<(), ShaderError> {
-        let loc = self.get_uniform_location(name)?;
-
-        unsafe {
-            gl::Uniform3fv(loc, vec3s.len() as gl::types::GLint, vec3s[0].as_ptr());
-        }
-
-        Ok(())
-    }
-
-    ///Set a uniform vec4.
-    pub fn set_vec4(self, name: &str, vec4: Vector4f) -> Result<(), ShaderError> {
-        let loc = self.get_uniform_location(name)?;
-
-        unsafe {
-            gl::Uniform4fv(loc, 1 as gl::types::GLint, vec4.as_ptr());
-        }
-
-        Ok(())
-    }
-
-    ///Set a uniform vec4 array.
-    pub fn set_vec4_arr(self, name: &str, vec4s: &[Vector4f]) -> Result<(), ShaderError> {
-        let loc = self.get_uniform_location(name)?;
-
-        unsafe {
-            gl::Uniform4fv(loc, vec4s.len() as gl::types::GLint, vec4s[0].as_ptr());
-        }
-
-        Ok(())
-    }
-
-    ///Returns uniform location in program from uniform name.
-    fn get_uniform_location(self, name: &str) -> Result<gl::types::GLint, ShaderError> {
-        let uniform_name = CString::new(name).map_err(ShaderError::Nul)?;
-
-        let loc = unsafe { gl::GetUniformLocation(self.id, uniform_name.as_ptr()) };
-
-        if loc < 0 {
-            Err(ShaderError::InvalidUniform(name.into()))
-        } else {
-            Ok(loc)
+    /// Set a uniform mat4.
+    ///
+    /// Returns true if the uniform name was found and set, false otherwise.
+    pub fn set_mat4(self, name: &str, mat4: Matrix4f) -> bool {
+        match self.get_uniform_location(name) {
+            None => false,
+            Some(loc) => unsafe {
+                gl::UniformMatrix4fv(loc, 1, gl::FALSE, mat4.as_ptr());
+                true
+            },
         }
     }
 
-    ///Create Program from Shaders. Deletes shaders afterwards.
-    pub fn from_shaders(
-        vertex_shader: Shader,
-        fragment_shader: Shader,
-    ) -> Result<Program, ShaderError> {
+    /// Set a uniform mat4 array.
+    ///
+    /// Returns true if the uniform name was found and set, false otherwise.
+    pub fn set_mat4_arr(self, name: &str, mat4s: &[Matrix4f]) -> bool {
+        match self.get_uniform_location(name) {
+            None => false,
+            Some(loc) => unsafe {
+                gl::UniformMatrix4fv(
+                    loc,
+                    mat4s.len() as gl::types::GLint,
+                    gl::FALSE,
+                    mat4s[0].as_ptr(),
+                );
+                true
+            },
+        }
+    }
+
+    /// Set a uniform vec2.
+    ///
+    /// Returns true if the uniform name was found and set, false otherwise.
+    pub fn set_vec2(self, name: &str, vec2: Vector2f) -> bool {
+        match self.get_uniform_location(name) {
+            None => false,
+            Some(loc) => unsafe {
+                gl::Uniform2fv(loc, 1 as gl::types::GLint, vec2.as_ptr());
+                true
+            },
+        }
+    }
+
+    /// Set a uniform vec2 array.
+    ///
+    /// Returns true if the uniform name was found and set, false otherwise.
+    pub fn set_vec2_arr(self, name: &str, vec2s: &[Vector2f]) -> bool {
+        match self.get_uniform_location(name) {
+            None => false,
+            Some(loc) => unsafe {
+                gl::Uniform2fv(loc, vec2s.len() as gl::types::GLint, vec2s[0].as_ptr());
+                true
+            },
+        }
+    }
+
+    /// Set a uniform vec3.
+    ///
+    /// Returns true if the uniform name was found and set, false otherwise.
+    pub fn set_vec3(self, name: &str, vec3: Vector3f) -> bool {
+        match self.get_uniform_location(name) {
+            None => false,
+            Some(loc) => unsafe {
+                gl::Uniform3fv(loc, 1, vec3.as_ptr());
+                true
+            },
+        }
+    }
+
+    /// Set a uniform vec3 array.
+    ///
+    /// Returns true if the uniform name was found and set, false otherwise.
+    pub fn set_vec3_arr(self, name: &str, vec3s: &[Vector3f]) -> bool {
+        match self.get_uniform_location(name) {
+            None => false,
+            Some(loc) => unsafe {
+                gl::Uniform3fv(loc, vec3s.len() as gl::types::GLint, vec3s[0].as_ptr());
+                true
+            },
+        }
+    }
+
+    /// Set a uniform vec4.
+    ///
+    /// Returns true if the uniform name was found and set, false otherwise.
+    pub fn set_vec4(self, name: &str, vec4: Vector4f) -> bool {
+        match self.get_uniform_location(name) {
+            None => false,
+            Some(loc) => unsafe {
+                gl::Uniform4fv(loc, 1, vec4.as_ptr());
+                true
+            },
+        }
+    }
+
+    /// Set a uniform vec4 array.
+    ///
+    /// Returns true if the uniform name was found and set, false otherwise.
+    pub fn set_vec4_arr(self, name: &str, vec4s: &[Vector4f]) -> bool {
+        match self.get_uniform_location(name) {
+            None => false,
+            Some(loc) => unsafe {
+                gl::Uniform4fv(loc, vec4s.len() as gl::types::GLint, vec4s[0].as_ptr());
+                true
+            },
+        }
+    }
+
+    /// Returns uniform location in program from uniform name, or None if
+    /// the uniform name was not found.
+    fn get_uniform_location(self, name: &str) -> Option<gl::types::GLint> {
+        let uniform_name = CString::new(name).unwrap();
+
+        match unsafe { gl::GetUniformLocation(self.id, uniform_name.as_ptr()) } {
+            0 => None,
+            loc => Some(loc),
+        }
+    }
+
+    /// Create Program from Shaders. Deletes shaders afterwards.
+    pub fn from_shaders(vertex_shader: Shader, fragment_shader: Shader) -> Result<Program, Error> {
         let program_id = unsafe { gl::CreateProgram() };
 
         unsafe {
@@ -222,9 +194,9 @@ impl Program {
                 );
             }
 
-            return Err(ShaderError::ProgramLinkingFailed(
-                error.to_string_lossy().into_owned(),
-            ));
+            return Err(
+                ShaderError::ProgramLinkingFailed(error.to_string_lossy().into_owned()).into(),
+            );
         }
 
         unsafe {
@@ -243,15 +215,9 @@ pub enum ShaderType {
     Fragment = gl::FRAGMENT_SHADER as isize,
 }
 
-impl Loadable for Shader {
-    type LoadOptions = ShaderType;
-    type LoadError = ShaderError;
-
-    fn load_from_bytes(data: &[u8], shader_type: ShaderType) -> Result<Self, ShaderError> {
-        Self::from_source(
-            &str::from_utf8(data).map_err(ShaderError::Utf8)?,
-            shader_type,
-        )
+impl Asset<ShaderType> for Shader {
+    fn load_from_bytes(data: &[u8], options: ShaderType) -> Result<Self, Error> {
+        Self::from_source(&str::from_utf8(data)?, options)
     }
 }
 
@@ -269,8 +235,8 @@ impl Shader {
 
     ///Create a new shader from GLSL source (provided as a CString), returns Shader object or OpenGL error log.
     ///shader_type: usually gl::VERTEX_SHADER or gl::FRAGMENT_SHADER
-    pub fn from_source(source: &str, shader_type: ShaderType) -> Result<Shader, ShaderError> {
-        let cstring_source = CString::new(source).map_err(ShaderError::Nul)?;
+    pub fn from_source(source: &str, shader_type: ShaderType) -> Result<Shader, Error> {
+        let cstring_source = CString::new(source)?;
 
         //Create shader and get ID
         let id = unsafe { gl::CreateShader(shader_type as gl::types::GLuint) };
